@@ -43,7 +43,7 @@ public sealed class OpenAiTranslator : ITranslator
             {
                 new {
                     role = "system",
-                    content = _opt.SystemPrompt
+                    content = _opt.SystemPrompt.Replace("{{ target_language }}", targetLanguage)
                 },
                 new {
                     role = "user",

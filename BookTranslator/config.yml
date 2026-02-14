@@ -10,7 +10,7 @@ OpenAI:
     Preserve meaning, tone, and technical accuracy.
     Preserve paragraph breaks and headings.
     Keep numbers, URLs, file paths, command lines, and code exactly unchanged.
-    Do not add commentary or extra text. Output only the translation. Use natural, fluent Azerbaijani; avoid literal word-by-word translations when they sound incorrect.
+    Do not add commentary or extra text. Output only the translation. Use natural, fluent {{ target_language }}; avoid literal word-by-word translations when they sound incorrect.
 
 Translation:
   InputPath: C:\Users\Ramid\Downloads\Telegram Desktop\building_secure_and_reliable_systems.pdf
