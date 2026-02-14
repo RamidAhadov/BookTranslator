@@ -6,11 +6,11 @@ public static class AtomicFile
 {
     public static async Task WriteAllTextAtomicAsync(string path, string content, Encoding encoding, CancellationToken ct)
     {
-        var dir = Path.GetDirectoryName(path);
+        string? dir = Path.GetDirectoryName(path);
         if (!string.IsNullOrWhiteSpace(dir))
             Directory.CreateDirectory(dir);
 
-        var tmp = path + ".tmp";
+        string tmp = path + ".tmp";
 
         await File.WriteAllTextAsync(tmp, content, encoding, ct);
         File.Move(tmp, path, overwrite: true);
@@ -18,11 +18,11 @@ public static class AtomicFile
 
     public static async Task WriteAllBytesAtomicAsync(string path, byte[] content, CancellationToken ct)
     {
-        var dir = Path.GetDirectoryName(path);
+        string? dir = Path.GetDirectoryName(path);
         if (!string.IsNullOrWhiteSpace(dir))
             Directory.CreateDirectory(dir);
 
-        var tmp = path + ".tmp";
+        string tmp = path + ".tmp";
 
         await File.WriteAllBytesAsync(tmp, content, ct);
         File.Move(tmp, path, overwrite: true);

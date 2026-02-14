@@ -2,8 +2,9 @@ namespace BookTranslator.Options;
 
 public class FontOptions
 {
-    public string FontStyle { get; set; }
-    public string FontStyleExtension { get; set; }
+    public string PageSize { get; set; }
+    public string HeaderFontStyle { get; set; }
+    public string ParagraphFontStyle { get; set; }
     public float FontSize { get; set; }
     public float LeadingMultiplier { get; set; }
     public Margins Margins { get; set; }

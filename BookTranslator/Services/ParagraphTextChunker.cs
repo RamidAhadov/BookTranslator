@@ -17,14 +17,14 @@ public sealed class ParagraphTextChunker : Chunker, ITextChunker
     {
         if (maxCharsPerChunk <= 0) throw new ArgumentOutOfRangeException(nameof(maxCharsPerChunk));
 
-        var paragraphs = text.Split("\n\n", StringSplitOptions.RemoveEmptyEntries)
+        string[] paragraphs = text.Split("\n\n", StringSplitOptions.RemoveEmptyEntries)
                              .Select(p => p.Trim())
                              .Where(p => p.Length > 0)
                              .ToArray();
 
-        var chunks = new List<TranslationChunk>();
-        var sb = new StringBuilder();
-        var idx = 0;
+        List<TranslationChunk> chunks = new List<TranslationChunk>();
+        StringBuilder sb = new StringBuilder();
+        int idx = 0;
 
         foreach (var p in paragraphs)
         {
@@ -57,13 +57,13 @@ public sealed class ParagraphTextChunker : Chunker, ITextChunker
 
     private static IEnumerable<string> splitLargeParagraph(string p, int maxChars)
     {
-        var sentences = System.Text.RegularExpressions.Regex
+        string[] sentences = System.Text.RegularExpressions.Regex
             .Split(p, @"(?<=[\.\!\?])\s+")
             .Where(s => !string.IsNullOrWhiteSpace(s))
             .ToArray();
 
-        var sb = new StringBuilder();
-        foreach (var s in sentences)
+        StringBuilder sb = new StringBuilder();
+        foreach (string s in sentences)
         {
             if (sb.Length > 0 && sb.Length + 1 + s.Length > maxChars)
             {

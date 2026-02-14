@@ -45,7 +45,7 @@ public sealed class FileCheckpointStore : ICheckpointStore
 
     public async Task<string?> ReadOutputAsync(int chunkIndex, CancellationToken ct)
     {
-        var p = GetOutputPath(chunkIndex);
+        string p = GetOutputPath(chunkIndex);
         if (!File.Exists(p)) return null;
         return await File.ReadAllTextAsync(p, Encoding.UTF8, ct);
     }
@@ -57,13 +57,13 @@ public sealed class FileCheckpointStore : ICheckpointStore
 
     public async Task MarkFailedAsync(int chunkIndex, int attempts, string error, CancellationToken ct)
     {
-        var payload = JsonSerializer.Serialize(new { chunkIndex, attempts, status = "failed", error }, _jsonOpt);
+        string payload = JsonSerializer.Serialize(new { chunkIndex, attempts, status = "failed", error }, _jsonOpt);
         await AtomicFile.WriteAllTextAtomicAsync(GetErrorPath(chunkIndex), payload, Encoding.UTF8, ct);
     }
 
     public async Task MarkQuarantinedAsync(int chunkIndex, int attempts, string error, CancellationToken ct)
     {
-        var payload = JsonSerializer.Serialize(new { chunkIndex, attempts, status = "quarantined", error }, _jsonOpt);
+        string payload = JsonSerializer.Serialize(new { chunkIndex, attempts, status = "quarantined", error }, _jsonOpt);
         await AtomicFile.WriteAllTextAtomicAsync(GetErrorPath(chunkIndex), payload, Encoding.UTF8, ct);
     }
 
@@ -72,13 +72,13 @@ public sealed class FileCheckpointStore : ICheckpointStore
         if (!File.Exists(_manifestPath))
             return new ChunkManifest();
 
-        var json = await File.ReadAllTextAsync(_manifestPath, Encoding.UTF8, ct);
+        string json = await File.ReadAllTextAsync(_manifestPath, Encoding.UTF8, ct);
         return JsonSerializer.Deserialize<ChunkManifest>(json, _jsonOpt) ?? new ChunkManifest();
     }
 
     public async Task WriteManifestAsync(ChunkManifest manifest, CancellationToken ct)
     {
-        var json = JsonSerializer.Serialize(manifest, _jsonOpt);
+        string json = JsonSerializer.Serialize(manifest, _jsonOpt);
         await AtomicFile.WriteAllTextAtomicAsync(_manifestPath, json, Encoding.UTF8, ct);
     }
 
@@ -86,7 +86,7 @@ public sealed class FileCheckpointStore : ICheckpointStore
     {
         if (File.Exists(_manifestPath)) return;
 
-        var m = new ChunkManifest
+        ChunkManifest m = new ChunkManifest
         {
             SourcePdfPath = sourcePdfPath,
             TargetLanguage = targetLanguage,

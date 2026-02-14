@@ -16,12 +16,12 @@ public sealed class WordTextChunker : Chunker, ITextChunker
     {
         if (wordsPerChunk <= 0) throw new ArgumentOutOfRangeException(nameof(wordsPerChunk));
 
-        var words = Regex.Split(text, @"\s+")
+        string[] words = Regex.Split(text, @"\s+")
             .Where(w => !string.IsNullOrWhiteSpace(w))
             .ToArray();
 
-        var chunks = new List<TranslationChunk>();
-        var idx = 0;
+        List<TranslationChunk> chunks = new List<TranslationChunk>();
+        int idx = 0;
 
         for (int i = 0; i < words.Length; i += wordsPerChunk)
         {

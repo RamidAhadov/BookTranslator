@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using BookTranslator.Models;
 using BookTranslator.Options;
@@ -36,12 +37,12 @@ public sealed class TranslationOrchestrator
         CancellationToken ct)
     {
         await _store.InitializeAsync(sourcePdfPath, targetLanguage, ct);
-        var manifest = await _store.ReadManifestAsync(ct);
+        ChunkManifest manifest = await _store.ReadManifestAsync(ct);
 
-        var results = new ChunkResult[chunks.Count];
-        var sem = new SemaphoreSlim(_opt.MaxDegreeOfParallelism);
+        ChunkResult[] results = new ChunkResult[chunks.Count];
+        SemaphoreSlim sem = new SemaphoreSlim(_opt.MaxDegreeOfParallelism);
 
-        var tasks = chunks.Select(async chunk =>
+        Task[] tasks = chunks.Select(async chunk =>
         {
             await sem.WaitAsync(ct);
             try
@@ -58,12 +59,12 @@ public sealed class TranslationOrchestrator
 
         await _store.WriteManifestAsync(manifest, ct);
 
-        var merged = new StringBuilder();
-        var review = new StringBuilder();
+        StringBuilder merged = new StringBuilder();
+        StringBuilder review = new StringBuilder();
 
         for (int i = 0; i < results.Length; i++)
         {
-            var r = results[i];
+            ChunkResult r = results[i];
             if (r.Status == ChunkStatus.Success && !string.IsNullOrWhiteSpace(r.Output))
             {
                 if (merged.Length > 0) merged.Append("\n\n");
@@ -80,7 +81,7 @@ public sealed class TranslationOrchestrator
 
         if (review.Length > 0)
         {
-            var reviewPath = Path.Combine(_opt.CheckpointDir, "TO_REVIEW.txt");
+            string reviewPath = Path.Combine(_opt.CheckpointDir, "TO_REVIEW.txt");
             await File.WriteAllTextAsync(reviewPath, review.ToString(), Encoding.UTF8, ct);
         }
 
@@ -96,7 +97,7 @@ public sealed class TranslationOrchestrator
     {
         if (_opt.Resume && await _store.HasSuccessAsync(chunk.Index, ct))
         {
-            var output = await _store.ReadOutputAsync(chunk.Index, ct);
+            string? output = await _store.ReadOutputAsync(chunk.Index, ct);
             _log.LogInformation("Chunk {Idx} skipped (resume).", chunk.Index);
             upsert(manifest, chunk.Index, ChunkStatus.Success, attempts: 0, lastError: null);
             return new ChunkResult(chunk.Index, ChunkStatus.Success, output, null, 0);
@@ -104,7 +105,7 @@ public sealed class TranslationOrchestrator
 
         await File.WriteAllTextAsync(_store.GetInputPath(chunk.Index), chunk.Text, Encoding.UTF8, ct);
 
-        var attempts = 0;
+        int attempts = 0;
         Exception? lastEx = null;
 
         while (attempts < _opt.MaxAttemptsPerChunk)
@@ -112,10 +113,10 @@ public sealed class TranslationOrchestrator
             attempts++;
             try
             {
-                var cacheKey = cacheKeyFactory(chunk);
+                string cacheKey = cacheKeyFactory(chunk);
 
-                var sw = System.Diagnostics.Stopwatch.StartNew();
-                var output = await _translator.TranslateAsync(chunk.Text, targetLanguage, cacheKey, ct);
+                Stopwatch sw = System.Diagnostics.Stopwatch.StartNew();
+                string output = await _translator.TranslateAsync(chunk.Text, targetLanguage, cacheKey, ct);
                 sw.Stop();
 
                 var (ok, reason) = _validator.Validate(chunk.Text, output);
@@ -133,7 +134,7 @@ public sealed class TranslationOrchestrator
             catch (Exception ex)
             {
                 lastEx = ex;
-                var msg = ex.Message;
+                string msg = ex.Message;
 
                 if (msg.Contains("insufficient_quota", StringComparison.OrdinalIgnoreCase))
                 {
@@ -157,7 +158,7 @@ public sealed class TranslationOrchestrator
             }
         }
 
-        var finalError = lastEx?.ToString() ?? "Unknown error";
+        string finalError = lastEx?.ToString() ?? "Unknown error";
         upsert(manifest, chunk.Index, ChunkStatus.Quarantined, attempts, finalError);
         await _store.MarkQuarantinedAsync(chunk.Index, attempts, finalError, ct);
 

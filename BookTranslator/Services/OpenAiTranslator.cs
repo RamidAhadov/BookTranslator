@@ -23,15 +23,15 @@ public sealed class OpenAiTranslator : ITranslator
 
     public async Task<string> TranslateAsync(string text, string targetLanguage, string cacheKey, CancellationToken ct)
     {
-        var apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
+        string? apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
         if (string.IsNullOrWhiteSpace(apiKey))
             throw new InvalidOperationException("OPENAI_API_KEY is not set.");
 
-        var client = _httpFactory.CreateClient("OpenAI");
+        HttpClient client = _httpFactory.CreateClient("OpenAI");
         client.BaseAddress = new Uri(_opt.BaseUrl);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
         
-        var payload = new
+        object payload = new
         {
             model = _opt.Model,
             temperature = _opt.Temperature,
@@ -57,13 +57,13 @@ public sealed class OpenAiTranslator : ITranslator
         return await Retry.WithBackoffAsync(
             action: async () =>
             {
-                using var req = new HttpRequestMessage(HttpMethod.Post, "v1/responses")
+                using HttpRequestMessage req = new HttpRequestMessage(HttpMethod.Post, "v1/responses")
                 {
                     Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
                 };
 
-                using var resp = await client.SendAsync(req, ct);
-                var body = await resp.Content.ReadAsStringAsync(ct);
+                using HttpResponseMessage resp = await client.SendAsync(req, ct);
+                string body = await resp.Content.ReadAsStringAsync(ct);
 
                 if (!resp.IsSuccessStatusCode)
                 {
@@ -81,32 +81,32 @@ public sealed class OpenAiTranslator : ITranslator
 
     private static string extractOutputText(string json)
     {
-        using var doc = JsonDocument.Parse(json);
+        using JsonDocument doc = JsonDocument.Parse(json);
 
-        if (!doc.RootElement.TryGetProperty("output", out var output) || output.ValueKind != JsonValueKind.Array)
+        if (!doc.RootElement.TryGetProperty("output", out JsonElement output) || output.ValueKind != JsonValueKind.Array)
             throw new InvalidOperationException("Unexpected response: missing 'output' array.");
 
-        var sb = new StringBuilder();
+        StringBuilder sb = new StringBuilder();
 
-        foreach (var item in output.EnumerateArray())
+        foreach (JsonElement item in output.EnumerateArray())
         {
-            if (!item.TryGetProperty("type", out var typeEl)) continue;
+            if (!item.TryGetProperty("type", out JsonElement typeEl)) continue;
             if (typeEl.GetString() != "message") continue;
 
-            if (!item.TryGetProperty("content", out var contentEl) || contentEl.ValueKind != JsonValueKind.Array)
+            if (!item.TryGetProperty("content", out JsonElement contentEl) || contentEl.ValueKind != JsonValueKind.Array)
                 continue;
 
-            foreach (var c in contentEl.EnumerateArray())
+            foreach (JsonElement c in contentEl.EnumerateArray())
             {
-                if (c.TryGetProperty("type", out var ctype) && ctype.GetString() == "output_text" &&
-                    c.TryGetProperty("text", out var textEl))
+                if (c.TryGetProperty("type", out JsonElement ctype) && ctype.GetString() == "output_text" &&
+                    c.TryGetProperty("text", out JsonElement textEl))
                 {
                     sb.Append(textEl.GetString());
                 }
             }
         }
 
-        var result = sb.ToString().Trim();
+        string result = sb.ToString().Trim();
         if (string.IsNullOrWhiteSpace(result))
             throw new InvalidOperationException("No translated text found in response.");
 

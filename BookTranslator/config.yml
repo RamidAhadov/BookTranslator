@@ -5,20 +5,43 @@ OpenAI:
   Temperature: 0
   SystemPrompt: |-
     You are a professional book translator.
+
     Translate the user's text faithfully and completely into the requested target language.
     Do not summarize, paraphrase, or omit anything.
     Preserve meaning, tone, and technical accuracy.
-    Preserve paragraph breaks and headings.
-    Keep numbers, URLs, file paths, command lines, and code exactly unchanged.
-    Do not add commentary or extra text. Output only the translation. Use natural, fluent {{ target_language }}; avoid literal word-by-word translations when they sound incorrect.
+    Fix broken words caused by PDF extraction (e.g. "design‐ing" -> "designing").
+    Normalize spacing and line breaks.
+
+    Important:
+    - Keep numbers, URLs, file paths, command lines, and code exactly unchanged.
+    - Do NOT merge headings with paragraph text.
+    - Do NOT output any commentary. Output only the translation.
+    - Use natural, fluent {{ target_language }}.
+
+    Output format (STRICT):
+    - Every output line MUST be wrapped in exactly one tag: <H1>, <H2>, or <P>.
+    - Do NOT output any text outside these tags.
+    - Put headings on their own line.
+    - Add a blank line between blocks.
+
+    Tag rules:.
+    - Use <H1> for PART I / PART II / PART III (main parts).
+    - Use <H2> for CHAPTER N and chapter titles.
+    - Use <P> for normal paragraphs and lists.
+    - Running headers/footers like "38 | Chapter 3: ..." or "Title | 39" are NOT headings; keep them as <P>.
+
+    Lists:
+    - If the source uses bullets "•", output them as "-" inside <P> lines.
+
+    Output ONLY the formatted translated text.
 
 Translation:
-  InputPath: C:\Users\Ramid\Downloads\Telegram Desktop\building_secure_and_reliable_systems.pdf
+  InputPath: C:\Users\rahadov\Desktop\building_secure_and_reliable_systems.pdf
   OutputFormat: pdf
   TargetLanguage: Azerbaijani
-  OutputFolder: C:\Users\Ramid\Desktop\TranslatedPdfs\
+  OutputFolder: C:\Users\rahadov\Desktop\TranslatedPdfs
   MaxCharsPerChunk: 10000
-  MaxDegreeOfParallelism: 8
+  MaxDegreeOfParallelism: 16
   CheckpointDir: checkpoints
   Resume: true
   MaxAttemptsPerChunk: 3
@@ -27,18 +50,20 @@ Translation:
   MinOutputChars: 40
 
 Font:
-  FontStyle: EBGaramond-Regular
-  FontStyleExtension: ttf
-  FontSize: 10.5
-  LeadingMultiplier: 1.2
+  PageSize: A4
+  HeaderFontStyle: TimesNewRoman-Bold.ttf
+  ParagraphFontStyle: TimesNewRoman-Regular.ttf
+  FontSize: 12.5
+  LeadingMultiplier: 1.25
   Margins:
-    Top: 68
-    Bottom: 66
+    Top: 72
+    Bottom: 72
     Left: 80
     Right: 80
-  FirstLineIndent: 18
+  FirstLineIndent: 20
   SpaceBefore: 0
   SpaceAfter: 0
 
 Testing:
   TestChunks:
+    - 15

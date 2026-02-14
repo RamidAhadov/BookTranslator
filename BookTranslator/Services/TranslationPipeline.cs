@@ -48,15 +48,15 @@ public sealed class TranslationPipeline
         if (string.IsNullOrWhiteSpace(raw))
             throw new InvalidOperationException("Extracted text is empty. If PDF is scanned, OCR is required.");
 
-        var normalized = PdfTextPreprocessor.Preprocess(raw);
+        string normalized = PdfTextPreprocessor.Preprocess(raw);
 
-        var chunksRaw = _chunker.Chunk(normalized, _translationOptions.MaxCharsPerChunk);
+        IReadOnlyList<TranslationChunk> chunksRaw = _chunker.Chunk(normalized, _translationOptions.MaxCharsPerChunk);
 
         _log.LogInformation(
             "Chunking done. Chunks={Count}, MaxCharsPerChunk={Cpc}, Parallelism={Par}",
             chunksRaw.Count, _translationOptions.MaxCharsPerChunk, _translationOptions.MaxDegreeOfParallelism);
 
-        var chunks = chunksRaw
+        List<TranslationChunk> chunks = chunksRaw
             .Select(c => new TranslationChunk(c.Index, c.Text))
             .ToList();
 
@@ -75,14 +75,15 @@ public sealed class TranslationPipeline
             cacheKeyFactory: CacheKeyFactory,
             ct: ct);
 
-        var success = results.Count(r => r.Status == ChunkStatus.Success);
-        var quarantined = results.Count(r => r.Status == ChunkStatus.Quarantined);
-        var failed = results.Count(r => r.Status == ChunkStatus.Failed);
+        int success = results.Count(r => r.Status == ChunkStatus.Success);
+        int quarantined = results.Count(r => r.Status == ChunkStatus.Quarantined);
+        int failed = results.Count(r => r.Status == ChunkStatus.Failed);
 
         _log.LogInformation("Translation finished. Success={S}, Quarantined={Q}, Failed={F}", success, quarantined,
             failed);
 
         _log.LogInformation("Writing output: {Out}", outputPath);
+        mergedText = TextSanitizer.SanitizeModelOutput(mergedText);
         await _writer.WriteAsync(mergedText, outputPath, ct);
 
         _log.LogInformation("Completed.");

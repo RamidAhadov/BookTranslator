@@ -7,10 +7,10 @@ public static class CacheKeyBuilder
 {
     public static string Build(string input)
     {
-        using var sha = SHA256.Create();
-        var bytes = sha.ComputeHash(Encoding.UTF8.GetBytes(input));
+        using SHA256 sha = SHA256.Create();
+        byte[] bytes = sha.ComputeHash(Encoding.UTF8.GetBytes(input));
 
-        var shortHash = Convert.ToHexString(bytes[..16]).ToLowerInvariant();
+        string shortHash = Convert.ToHexString(bytes[..16]).ToLowerInvariant();
 
         return $"pdftr-{shortHash}";
     }

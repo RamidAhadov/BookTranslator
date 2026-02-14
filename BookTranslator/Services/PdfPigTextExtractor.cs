@@ -1,5 +1,6 @@
 using System.Text;
 using UglyToad.PdfPig;
+using UglyToad.PdfPig.Content;
 
 namespace BookTranslator.Services;
 
@@ -7,10 +8,10 @@ public sealed class PdfPigTextExtractor : IPdfTextExtractor
 {
     public string Extract(string pdfPath)
     {
-        var sb = new StringBuilder();
+        StringBuilder sb = new StringBuilder();
 
-        using var doc = PdfDocument.Open(pdfPath);
-        foreach (var page in doc.GetPages())
+        using PdfDocument doc = PdfDocument.Open(pdfPath);
+        foreach (Page page in doc.GetPages())
         {
             sb.AppendLine(page.Text);
             sb.AppendLine();
