@@ -18,7 +18,7 @@ public class Chunker
     
     protected TranslationChunk[] filterChunks(IReadOnlyList<TranslationChunk> chunks)
     {
-        if (_testingOptions.TestChunks.Count > 0)
+        if (_testingOptions.TestChunks is { Count: > 0 })
         {
             _logger.LogInformation($"Testing chunks found: {_testingOptions.TestChunks.Count}");
             if (_testingOptions.TestChunks.Any(c => c >= chunks.Count))

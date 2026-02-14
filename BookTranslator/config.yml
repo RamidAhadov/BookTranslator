@@ -27,20 +27,18 @@ Translation:
   MinOutputChars: 40
 
 Font:
-  FontStyle: MinionPro-Regular
-  FontStyleExtension: otf
+  FontStyle: EBGaramond-Regular
+  FontStyleExtension: ttf
   FontSize: 10.5
   LeadingMultiplier: 1.2
   Margins:
-    Top: 72
-    Bottom: 72
-    Left: 79.2
-    Right: 64.8
+    Top: 68
+    Bottom: 66
+    Left: 80
+    Right: 80
   FirstLineIndent: 18
   SpaceBefore: 0
   SpaceAfter: 0
 
 Testing:
   TestChunks:
-    - 28
-    - 68
