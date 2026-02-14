@@ -15,46 +15,36 @@ namespace BookTranslator.Services;
 
 public sealed class PdfOutputWriter : IOutputWriter
 {
-    private readonly string _fontPath;
+    private readonly FontOptions _fontOptions;
 
-    public PdfOutputWriter(IOptions<TranslationOptions> topt)
+    public PdfOutputWriter(IOptions<FontOptions> fontOptions)
     {
-        string fontStyle = $"{topt.Value.FontStyle}.{topt.Value.FontStyleExtension}";
-        _fontPath = Path.Combine(AppContext.BaseDirectory, "Assets", "Fonts", fontStyle);
+        _fontOptions = fontOptions.Value;
     }
 
     public Task WriteAsync(string content, string path, CancellationToken ct)
     {
         var pageSize = PageSize.LETTER;
+        string fontStyle = $"{_fontOptions.FontStyle}.{_fontOptions.FontStyleExtension}";
+        string fontPath = Path.Combine(AppContext.BaseDirectory, "Assets", "Fonts", fontStyle);
 
         using var writer = new PdfWriter(path);
         using var pdf = new PdfDocument(writer);
         using var doc = new Document(pdf, pageSize);
 
         var font = PdfFontFactory.CreateFont(
-            _fontPath,
+            fontPath,
             PdfEncodings.IDENTITY_H,
             PdfFontFactory.EmbeddingStrategy.FORCE_EMBEDDED
         );
 
-        const float fontSize = 10.5f;
-        const float leadingMultiplier = 1.2f;
+        Margins margins = _fontOptions.Margins;
 
-        const float top = 72f;
-        const float bottom = 72f;
-        const float left = 79.2f;
-        const float right = 64.8f;
-
-        doc.SetMargins(top, right, bottom, left);
+        doc.SetMargins(margins.Top, margins.Right, margins.Bottom, margins.Left);
         doc.SetFont(font);
-        doc.SetFontSize(fontSize);
+        doc.SetFontSize(_fontOptions.FontSize);
 
         var hyphenation = new HyphenationConfig("en", "US", 3, 3);
-
-        const float firstLineIndent = 18f;
-
-        const float spaceBefore = 0f;
-        const float spaceAfter = 0f;
 
         var paragraphs = splitParagraphs(content);
 
@@ -66,10 +56,10 @@ public sealed class PdfOutputWriter : IOutputWriter
             var para = new Paragraph(p.Trim())
                 .SetTextAlignment(TextAlignment.JUSTIFIED)
                 .SetHyphenation(hyphenation)
-                .SetFirstLineIndent(firstLineIndent)
-                .SetMarginTop(spaceBefore)
-                .SetMarginBottom(spaceAfter)
-                .SetMultipliedLeading(leadingMultiplier);
+                .SetFirstLineIndent(_fontOptions.FirstLineIndent)
+                .SetMarginTop(_fontOptions.SpaceBefore)
+                .SetMarginBottom(_fontOptions.SpaceAfter)
+                .SetMultipliedLeading(_fontOptions.LeadingMultiplier);
 
             doc.Add(para);
         }

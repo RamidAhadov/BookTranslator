@@ -19,9 +19,6 @@ public sealed class TranslationOptions
     public double MinOutputToInputRatio { get; set; }
     public int MinOutputChars { get; set; }
 
-    public string FontStyle { get; set; }
-    public string FontStyleExtension { get; set; }
-
     public override string ToString()
     {
         return $"Input={Path.GetFileName(InputPath)}, Target={TargetLanguage}, Format={OutputFormat}, " +

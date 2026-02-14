@@ -1,6 +1,7 @@
 ﻿using BookTranslator.Options;
 using BookTranslator.Services;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Configuration.Yaml;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -12,15 +13,21 @@ public static class Program
     public static async Task<int> Main(string[] args)
     {
         using var host = Host.CreateDefaultBuilder(args)
-            .ConfigureAppConfiguration((_, cfg) =>
+            .ConfigureAppConfiguration((ctx, cfg) =>
             {
+                cfg.Sources.Clear();
+
+                cfg.AddYamlFile("config.yml", optional: false, reloadOnChange: true);
+
                 cfg.AddEnvironmentVariables();
+                cfg.AddCommandLine(args);
             })
             .ConfigureServices((ctx, services) =>
             {
                 services.Configure<OpenAiOptions>(ctx.Configuration.GetSection("OpenAI"));
                 services.Configure<TranslationOptions>(ctx.Configuration.GetSection("Translation"));
                 services.Configure<TestingOptions>(ctx.Configuration.GetSection("Testing"));
+                services.Configure<FontOptions>(ctx.Configuration.GetSection("Font"));
 
                 services.AddHttpClient("OpenAI");
 
