@@ -1,6 +1,7 @@
 using BookTranslator.Options;
 using BookTranslator.Helpers;
 using BookTranslator.Models;
+using System.Text.RegularExpressions;
 using iText.IO.Font;
 using iText.Kernel.Font;
 using iText.Kernel.Geom;
@@ -16,6 +17,9 @@ namespace BookTranslator.Services;
 
 public sealed class PdfOutputWriter : IOutputWriter
 {
+    private static readonly Regex TocDotsPattern =
+        new(@"\.{2,}\s*\d+\s*$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
     private readonly FontOptions _fontOptions;
 
     public PdfOutputWriter(IOptions<FontOptions> fontOptions)
@@ -29,10 +33,10 @@ public sealed class PdfOutputWriter : IOutputWriter
         Margins margins = _fontOptions.Margins;
 
         string regularPath = Path.Combine(AppContext.BaseDirectory, "Assets", "Fonts",
-            $"{_fontOptions.ParagraphFontStyle}");
+            $"{_fontOptions.RegularFontStyle}");
 
         string boldPath = Path.Combine(AppContext.BaseDirectory, "Assets", "Fonts",
-            $"{_fontOptions.HeaderFontStyle}");
+            $"{_fontOptions.BoldFontStyle}");
 
         using PdfWriter writer = new PdfWriter(path);
         using PdfDocument pdf = new PdfDocument(writer);
@@ -53,8 +57,9 @@ public sealed class PdfOutputWriter : IOutputWriter
         foreach (StructuredBlock b in blocks)
         {
             Paragraph para;
+            var effectiveKind = GetEffectiveKind(b);
 
-            switch (b.Kind)
+            switch (effectiveKind)
             {
                 case BlockKind.H1:
                     para = new Paragraph()
@@ -91,5 +96,21 @@ public sealed class PdfOutputWriter : IOutputWriter
 
         doc.Close();
         return Task.CompletedTask;
+    }
+
+    private static BlockKind GetEffectiveKind(StructuredBlock block)
+    {
+        var text = block.Text.Trim();
+
+        if (block.Kind is BlockKind.H1 or BlockKind.H2)
+        {
+            if (text.StartsWith("- ", StringComparison.Ordinal))
+                return BlockKind.P;
+
+            if (block.Kind == BlockKind.H2 && (TocDotsPattern.IsMatch(text) || text.Length > 120))
+                return BlockKind.P;
+        }
+
+        return block.Kind;
     }
 }

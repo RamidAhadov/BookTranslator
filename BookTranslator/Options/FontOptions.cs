@@ -3,8 +3,10 @@ namespace BookTranslator.Options;
 public class FontOptions
 {
     public string PageSize { get; set; }
-    public string HeaderFontStyle { get; set; }
-    public string ParagraphFontStyle { get; set; }
+    public string BoldFontStyle { get; set; }
+    public string RegularFontStyle { get; set; }
+    public string ItalicFontStyle { get; set; }
+    public string CodeFontStyle { get; set; }
     public float FontSize { get; set; }
     public float LeadingMultiplier { get; set; }
     public Margins Margins { get; set; }

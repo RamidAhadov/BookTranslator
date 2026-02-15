@@ -18,14 +18,11 @@ public static class TextSanitizer
     {
         if (string.IsNullOrWhiteSpace(s)) return s;
 
-        // normalize newlines
         s = s.Replace("\r\n", "\n").Replace('\r', '\n');
 
-        // remove any standalone closing tags
-        s = Regex.Replace(s, @"(?m)^\s*</(P|H1|H2)>\s*$", "");
-
-        // if the model appended a trailing closing tag without newline
-        s = Regex.Replace(s, @"\s*</(P|H1|H2)>\s*$", "");
+        // Remove markdown fences when the model wraps output as ```html ... ```
+        s = Regex.Replace(s, @"^\s*```[a-zA-Z]*\s*\n", "", RegexOptions.Singleline);
+        s = Regex.Replace(s, @"\n\s*```\s*$", "", RegexOptions.Singleline);
 
         return s.Trim();
     }

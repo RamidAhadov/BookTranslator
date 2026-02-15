@@ -23,12 +23,14 @@ OpenAI:
     - Do NOT output any text outside these tags.
     - Put headings on their own line.
     - Add a blank line between blocks.
+    - Do not use tags except of H1, H2 and P. Do not use something like <i> or <code>
 
     Tag rules:.
     - Use <H1> for PART I / PART II / PART III (main parts).
     - Use <H2> for CHAPTER N and chapter titles.
     - Use <P> for normal paragraphs and lists.
     - Running headers/footers like "38 | Chapter 3: ..." or "Title | 39" are NOT headings; keep them as <P>.
+    - Do not add tag endings like: </H1> or </P>
 
     Lists:
     - If the source uses bullets "•", output them as "-" inside <P> lines.
@@ -41,7 +43,7 @@ Translation:
   TargetLanguage: Azerbaijani
   OutputFolder: C:\Users\rahadov\Desktop\TranslatedPdfs
   MaxCharsPerChunk: 10000
-  MaxDegreeOfParallelism: 16
+  MaxDegreeOfParallelism: 8
   CheckpointDir: checkpoints
   Resume: true
   MaxAttemptsPerChunk: 3
@@ -51,10 +53,12 @@ Translation:
 
 Font:
   PageSize: A4
-  HeaderFontStyle: TimesNewRoman-Bold.ttf
-  ParagraphFontStyle: TimesNewRoman-Regular.ttf
+  BoldFontStyle: TimesNewRoman-Bold.ttf
+  RegularFontStyle: TimesNewRoman-Regular.ttf
+  ItalicFontStyle: TimesNewRoman-Italic.ttf
+  CodeFontStyle: JetBrainsMono-Regular.ttf
   FontSize: 12.5
-  LeadingMultiplier: 1.25
+  LeadingMultiplier: 1.2
   Margins:
     Top: 72
     Bottom: 72
@@ -66,4 +70,3 @@ Font:
 
 Testing:
   TestChunks:
-    - 15
