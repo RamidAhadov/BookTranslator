@@ -57,9 +57,10 @@ public sealed class OpenAiTranslator : ITranslator
         return await Retry.WithBackoffAsync(
             action: async () =>
             {
+                string reqContent = JsonSerializer.Serialize(payload);
                 using HttpRequestMessage req = new HttpRequestMessage(HttpMethod.Post, "v1/responses")
                 {
-                    Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
+                    Content = new StringContent(reqContent, Encoding.UTF8, "application/json")
                 };
 
                 using HttpResponseMessage resp = await client.SendAsync(req, ct);

@@ -48,7 +48,7 @@ Translation:
   MaxCharsPerChunk: 6000
   MaxDegreeOfParallelism: 4
   CheckpointDir: checkpoints
-  Resume: false
+  Resume: true
   MaxAttemptsPerChunk: 3
   QuarantineAfterAttempts: 3
   MinOutputToInputRatio: 0.30
@@ -73,3 +73,6 @@ Font:
 
 Testing:
   TestChunks:
+    - 10
+    - 11
+    - 12
