@@ -20,6 +20,12 @@ public sealed class PdfOutputWriter : IOutputWriter
     private static readonly Regex TocDotsPattern =
         new(@"\.{2,}\s*\d+\s*$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
+    private static readonly Regex NumericOnlyPattern =
+        new(@"^[\d\s\.,:/\-()]+$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static readonly Regex LooksLikeTocItemPattern =
+        new(@"^\s*(\d+(\.\d+)*)?\s*[A-Za-z].*\s\d+\s*$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
     private readonly FontOptions _fontOptions;
 
     public PdfOutputWriter(IOptions<FontOptions> fontOptions)
@@ -32,11 +38,8 @@ public sealed class PdfOutputWriter : IOutputWriter
         PageSize pageSize = EnumParser.ParsePageSize(_fontOptions.PageSize);
         Margins margins = _fontOptions.Margins;
 
-        string regularPath = Path.Combine(AppContext.BaseDirectory, "Assets", "Fonts",
-            $"{_fontOptions.RegularFontStyle}");
-
-        string boldPath = Path.Combine(AppContext.BaseDirectory, "Assets", "Fonts",
-            $"{_fontOptions.BoldFontStyle}");
+        string regularPath = Path.Combine(AppContext.BaseDirectory, "Assets", "Fonts", _fontOptions.RegularFontStyle);
+        string boldPath = Path.Combine(AppContext.BaseDirectory, "Assets", "Fonts", _fontOptions.BoldFontStyle);
 
         using PdfWriter writer = new PdfWriter(path);
         using PdfDocument pdf = new PdfDocument(writer);
@@ -57,27 +60,27 @@ public sealed class PdfOutputWriter : IOutputWriter
         foreach (StructuredBlock b in blocks)
         {
             Paragraph para;
-            var effectiveKind = GetEffectiveKind(b);
+            BlockKind effectiveKind = GetEffectiveKind(b);
 
             switch (effectiveKind)
             {
                 case BlockKind.H1:
                     para = new Paragraph()
                         .Add(new Text(b.Text).SetFont(bold))
-                        .SetFontSize(_fontOptions.FontSize * 1.6f)
+                        .SetFontSize(_fontOptions.FontSize * 1.35f)
                         .SetTextAlignment(TextAlignment.CENTER)
                         .SetFirstLineIndent(0)
-                        .SetMarginTop(_fontOptions.SpaceBefore + 8)
-                        .SetMarginBottom(_fontOptions.SpaceAfter + 10);
+                        .SetMarginTop(_fontOptions.SpaceBefore + 6)
+                        .SetMarginBottom(_fontOptions.SpaceAfter + 8);
                     break;
 
                 case BlockKind.H2:
                     para = new Paragraph()
                         .Add(new Text(b.Text).SetFont(bold))
-                        .SetFontSize(_fontOptions.FontSize * 1.3f)
+                        .SetFontSize(_fontOptions.FontSize * 1.12f)
                         .SetFirstLineIndent(0)
-                        .SetMarginTop(_fontOptions.SpaceBefore + 6)
-                        .SetMarginBottom(_fontOptions.SpaceAfter + 6);
+                        .SetMarginTop(_fontOptions.SpaceBefore + 4)
+                        .SetMarginBottom(_fontOptions.SpaceAfter + 4);
                     break;
 
                 default:
@@ -100,15 +103,24 @@ public sealed class PdfOutputWriter : IOutputWriter
 
     private static BlockKind GetEffectiveKind(StructuredBlock block)
     {
-        var text = block.Text.Trim();
+        string text = block.Text.Trim();
 
         if (block.Kind is BlockKind.H1 or BlockKind.H2)
         {
             if (text.StartsWith("- ", StringComparison.Ordinal))
                 return BlockKind.P;
 
-            if (block.Kind == BlockKind.H2 && (TocDotsPattern.IsMatch(text) || text.Length > 120))
+            if (string.IsNullOrWhiteSpace(text) || text.Length > 120)
                 return BlockKind.P;
+
+            if (NumericOnlyPattern.IsMatch(text))
+                return BlockKind.P;
+
+            if (TocDotsPattern.IsMatch(text) || LooksLikeTocItemPattern.IsMatch(text))
+                return BlockKind.P;
+
+            if (text.Contains("table of contents", StringComparison.OrdinalIgnoreCase))
+                return BlockKind.H2;
         }
 
         return block.Kind;

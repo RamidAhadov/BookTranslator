@@ -7,7 +7,7 @@ namespace BookTranslator.Helpers;
 public static class StructuredTextParser
 {
     private static readonly Regex OpeningTagLine =
-        new(@"^\s*(?<bullet>[-*•]\s+)?<(?<tag>H1|H2|P)>\s*(?<text>.*)$",
+        new(@"^\s*(?<bullet>[-*]\s+)?<(?<tag>H1|H2|P)>\s*(?<text>.*)$",
             RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
     private static readonly Regex ClosingTagLine =
@@ -49,8 +49,8 @@ public static class StructuredTextParser
 
         foreach (var rawLine in lines)
         {
-            var line = rawLine.Trim();
-            if (string.IsNullOrWhiteSpace(line))
+            string line = rawLine.Trim();
+            if (line.Length == 0)
                 continue;
 
             var closeMatch = ClosingTagLine.Match(line);
@@ -66,16 +66,16 @@ public static class StructuredTextParser
             {
                 FlushCurrent();
 
-                var tag = openMatch.Groups["tag"].Value;
-                var kind = ParseKind(tag);
-                var bullet = openMatch.Groups["bullet"].Success ? "- " : string.Empty;
-                var text = openMatch.Groups["text"].Value;
+                string tag = openMatch.Groups["tag"].Value;
+                BlockKind kind = ParseKind(tag);
+                string bullet = openMatch.Groups["bullet"].Success ? "- " : string.Empty;
+                string text = openMatch.Groups["text"].Value;
 
-                var closeTag = $"</{tag.ToUpperInvariant()}>";
-                var closeIndex = text.IndexOf(closeTag, StringComparison.OrdinalIgnoreCase);
+                string closeTag = $"</{tag.ToUpperInvariant()}>";
+                int closeIndex = text.IndexOf(closeTag, StringComparison.OrdinalIgnoreCase);
                 if (closeIndex >= 0)
                 {
-                    var inline = (bullet + text[..closeIndex]).Trim();
+                    string inline = (bullet + text[..closeIndex]).Trim();
                     if (!string.IsNullOrWhiteSpace(inline))
                         blocks.Add(new StructuredBlock(kind, inline));
                     continue;
@@ -101,7 +101,9 @@ public static class StructuredTextParser
             }
             else
             {
-                blocks.Add(new StructuredBlock(BlockKind.P, InlineTagCleanup.Replace(line, "").Trim()));
+                string cleaned = InlineTagCleanup.Replace(line, "").Trim();
+                if (!string.IsNullOrWhiteSpace(cleaned))
+                    blocks.Add(new StructuredBlock(BlockKind.P, cleaned));
             }
         }
 

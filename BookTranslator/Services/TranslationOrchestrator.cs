@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text;
 using BookTranslator.Models;
 using BookTranslator.Options;
+using BookTranslator.Utils;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -47,7 +48,7 @@ public sealed class TranslationOrchestrator
             await sem.WaitAsync(ct);
             try
             {
-                results[chunk.Index] = await this.processChunkAsync(chunk, targetLanguage, manifest, cacheKeyFactory, ct);
+                results[chunk.Index] = await processChunkAsync(chunk, targetLanguage, manifest, cacheKeyFactory, ct);
             }
             finally
             {
@@ -95,15 +96,26 @@ public sealed class TranslationOrchestrator
         Func<TranslationChunk, string> cacheKeyFactory,
         CancellationToken ct)
     {
-        if (_opt.Resume && await _store.HasSuccessAsync(chunk.Index, ct))
+        string inputPath = _store.GetInputPath(chunk.Index);
+        bool currentInputMatchesPrevious = await HasSameInputAsync(inputPath, chunk.Text, ct);
+
+        if (_opt.Resume && currentInputMatchesPrevious && await _store.HasSuccessAsync(chunk.Index, ct))
         {
             string? output = await _store.ReadOutputAsync(chunk.Index, ct);
-            _log.LogInformation("Chunk {Idx} skipped (resume).", chunk.Index);
-            upsert(manifest, chunk.Index, ChunkStatus.Success, attempts: 0, lastError: null);
-            return new ChunkResult(chunk.Index, ChunkStatus.Success, output, null, 0);
+            if (!string.IsNullOrWhiteSpace(output))
+            {
+                output = TextSanitizer.SanitizeModelOutput(output);
+                var (ok, _) = _validator.Validate(chunk.Text, output);
+                if (ok)
+                {
+                    _log.LogInformation("Chunk {Idx} skipped (resume).", chunk.Index);
+                    upsert(manifest, chunk.Index, ChunkStatus.Success, attempts: 0, lastError: null);
+                    return new ChunkResult(chunk.Index, ChunkStatus.Success, output, null, 0);
+                }
+            }
         }
 
-        await File.WriteAllTextAsync(_store.GetInputPath(chunk.Index), chunk.Text, Encoding.UTF8, ct);
+        await File.WriteAllTextAsync(inputPath, chunk.Text, Encoding.UTF8, ct);
 
         int attempts = 0;
         Exception? lastEx = null;
@@ -115,8 +127,9 @@ public sealed class TranslationOrchestrator
             {
                 string cacheKey = cacheKeyFactory(chunk);
 
-                Stopwatch sw = System.Diagnostics.Stopwatch.StartNew();
+                Stopwatch sw = Stopwatch.StartNew();
                 string output = await _translator.TranslateAsync(chunk.Text, targetLanguage, cacheKey, ct);
+                output = TextSanitizer.SanitizeModelOutput(output);
                 sw.Stop();
 
                 var (ok, reason) = _validator.Validate(chunk.Text, output);
@@ -163,6 +176,15 @@ public sealed class TranslationOrchestrator
         await _store.MarkQuarantinedAsync(chunk.Index, attempts, finalError, ct);
 
         return new ChunkResult(chunk.Index, ChunkStatus.Quarantined, null, finalError, attempts);
+    }
+
+    private static async Task<bool> HasSameInputAsync(string inputPath, string currentInput, CancellationToken ct)
+    {
+        if (!File.Exists(inputPath))
+            return false;
+
+        string previousInput = await File.ReadAllTextAsync(inputPath, Encoding.UTF8, ct);
+        return string.Equals(previousInput, currentInput, StringComparison.Ordinal);
     }
 
     private static void upsert(ChunkManifest manifest, int index, ChunkStatus status, int attempts, string? lastError)
