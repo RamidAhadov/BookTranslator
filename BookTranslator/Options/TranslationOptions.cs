@@ -4,6 +4,7 @@ public sealed class TranslationOptions
 {
     public string InputPath { get; set; }
     public string OutputFormat { get; set; }
+    public bool IncludeImagesInPdf { get; set; } = true;
     public string TargetLanguage { get; set; }
     public string OutputFolder { get; set; }
 
@@ -22,6 +23,7 @@ public sealed class TranslationOptions
     public override string ToString()
     {
         return $"Input={Path.GetFileName(InputPath)}, Target={TargetLanguage}, Format={OutputFormat}, " +
-               $"Chunk={MaxCharsPerChunk}, Parallel={MaxDegreeOfParallelism}, Resume={Resume}";
+               $"Chunk={MaxCharsPerChunk}, Parallel={MaxDegreeOfParallelism}, Resume={Resume}, " +
+               $"IncludeImagesInPdf={IncludeImagesInPdf}";
     }
 }

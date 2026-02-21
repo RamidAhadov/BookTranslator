@@ -43,9 +43,10 @@ OpenAI:
 Translation:
   InputPath: C:\Users\Ramid\Desktop\building_secure_and_reliable_systems (old).pdf
   OutputFormat: pdf
+  IncludeImagesInPdf: true
   TargetLanguage: Azerbaijani
-  OutputFolder: C:\Users\Ramid\Desktop\TranslatedPdfs
-  MaxCharsPerChunk: 6000
+  OutputFolder: C:\Users\Ramid\Desktop\TranslatedPdfs\BuildingSecureAndReliableSystems\
+  MaxCharsPerChunk: 5000
   MaxDegreeOfParallelism: 4
   CheckpointDir: checkpoints
   Resume: true
@@ -73,6 +74,3 @@ Font:
 
 Testing:
   TestChunks:
-    - 10
-    - 11
-    - 12

@@ -4,7 +4,7 @@ namespace BookTranslator.Services;
 
 public sealed class TxtOutputWriter : IOutputWriter
 {
-    public async Task WriteAsync(string content, string path, CancellationToken ct)
+    public async Task WriteAsync(string content, string path, string sourcePdfPath, CancellationToken ct)
     {
         await File.WriteAllTextAsync(path, content, Encoding.UTF8, ct);
     }

@@ -84,7 +84,7 @@ public sealed class TranslationPipeline
 
         _log.LogInformation("Writing output: {Out}", outputPath);
         mergedText = TextSanitizer.SanitizeModelOutput(mergedText);
-        await _writer.WriteAsync(mergedText, outputPath, ct);
+        await _writer.WriteAsync(mergedText, outputPath, pdfPath, ct);
 
         _log.LogInformation("Completed.");
     }

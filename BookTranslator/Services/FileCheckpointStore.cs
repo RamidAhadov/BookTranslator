@@ -46,7 +46,7 @@ public sealed class FileCheckpointStore : ICheckpointStore
         _globalMapPath = Path.Combine(_baseRoot, "chunk-map.json");
 
         string runIdentity =
-            $"book={_bookName}|model={_openAi.Model}|tokens={_openAi.MaxOutputTokens}|lang={targetLanguage}|maxchars={_translation.MaxCharsPerChunk}";
+            $"book={_bookName}|tokens={_openAi.MaxOutputTokens}|lang={targetLanguage}|maxchars={_translation.MaxCharsPerChunk}";
         _runHash = CacheKeyBuilder.Build(runIdentity);
 
         _runRoot = Path.Combine(_baseRoot, "runs", _runHash);
@@ -146,7 +146,7 @@ public sealed class FileCheckpointStore : ICheckpointStore
     private string GetChunkHash(int chunkIndex)
     {
         string identity =
-            $"run={_runHash}|book={_bookName}|model={_openAi.Model}|tokens={_openAi.MaxOutputTokens}|lang={_targetLanguage}|maxchars={_translation.MaxCharsPerChunk}|idx={chunkIndex:D5}";
+            $"run={_runHash}|book={_bookName}|tokens={_openAi.MaxOutputTokens}|lang={_targetLanguage}|maxchars={_translation.MaxCharsPerChunk}|idx={chunkIndex:D5}";
         return CacheKeyBuilder.Build(identity);
     }
 
