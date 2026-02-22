@@ -74,7 +74,7 @@ OCR:
   Enabled: true
   Provider: azure-read
   AzureEndpoint: https://booktranslatorocr.cognitiveservices.azure.com/
-  AzureApiKey: AZURE_KEY_HERE
+  AzureApiKey: KEY_IS_HERE
   AzureApiVersion: v3.2
   PollIntervalMs: 1200
   MaxPollAttempts: 12
@@ -90,6 +90,11 @@ Translation:
   OutputFormat: pdf
   TranslatorProvider: gemini
   IncludeImagesInPdf: true
+  IncludeInvisibleTextLayer: true
+  UseInvisibleTextAsFallbackOnly: true
+  InvisibleFallbackMinVisibleTextChars: 80
+  InvisibleFallbackMinVisibleFragments: 20
+  MinVisibleCharsPerFragmentForStrongLayer: 1.8
   DeduplicatePdfImages: true
   MaxOccurrencesPerImageSignature: 1
   MaxPdfImagesPerPage: 6
@@ -100,8 +105,17 @@ Translation:
   MinAutoFontSize: 7
   FontScaleStep: 0.5
   ClearOriginalTextArea: true
+  MergeLinesIntoParagraphs: false
+  SuppressBackgroundPageImages: true
+  BackgroundImageMinPageCoverage: 0.62
+  MaxKeptImageCoverageOnTextPages: 0.45
+  BackgroundImageMinTextBlocks: 3
+  BackgroundImageMinTextChars: 120
+  BackgroundImageEdgeTolerance: 16
   TargetLanguage: Azerbaijani
   OutputFolder: C:\Users\Ramid\Desktop\TranslatedPdfs\DesignPatterns\
+  PageSelection: "1-5,31-35"
+  ForceRetranslateSelectedPages: true
   MaxCharsPerChunk: 5000
   MaxDegreeOfParallelism: 4
   CheckpointDir: checkpoints

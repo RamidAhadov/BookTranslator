@@ -38,7 +38,7 @@ public sealed class FileLayoutCheckpointStore : ILayoutCheckpointStore
         try
         {
             string sourceFullPath = Path.GetFullPath(sourcePdfPath);
-            string baseRoot = Path.GetFullPath(_translation.CheckpointDir);
+            string baseRoot = ResolveCheckpointRoot(_translation.CheckpointDir);
 
             string runIdentity =
                 $"layout|source={sourceFullPath}|lang={targetLanguage}|provider={providerName}";
@@ -207,5 +207,14 @@ public sealed class FileLayoutCheckpointStore : ILayoutCheckpointStore
     {
         if (!_initialized)
             throw new InvalidOperationException("Checkpoint store is not initialized.");
+    }
+
+    private static string ResolveCheckpointRoot(string checkpointDir)
+    {
+        if (Path.IsPathRooted(checkpointDir))
+            return Path.GetFullPath(checkpointDir);
+
+        string baseDir = AppContext.BaseDirectory;
+        return Path.GetFullPath(Path.Combine(baseDir, checkpointDir));
     }
 }

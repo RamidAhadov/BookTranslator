@@ -23,6 +23,18 @@ public static class TextSanitizer
     private static readonly Regex MultiSpacePattern =
         new(@"[ \t]{2,}", RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
+    private static readonly Regex LowerUpperBoundaryPattern =
+        new(@"(?<=[\p{Ll}])(?=[\p{Lu}])", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static readonly Regex PunctuationSpacingPattern =
+        new(@"\s+([,.;:!?])", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static readonly Regex OpenBracketSpacingPattern =
+        new(@"([(\[{])\s+", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static readonly Regex CloseBracketSpacingPattern =
+        new(@"\s+([)\]}])", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
     public static string CleanPdfArtifacts(string text)
     {
         if (string.IsNullOrWhiteSpace(text))
@@ -35,6 +47,10 @@ public static class TextSanitizer
         normalized = IsolatedXNoisePattern.Replace(normalized, " ");
         normalized = ArtifactTokenPattern.Replace(normalized, " ");
         normalized = JoinedXArtifactPattern.Replace(normalized, "");
+        normalized = SplitLikelyConcatenatedWords(normalized);
+        normalized = PunctuationSpacingPattern.Replace(normalized, "$1");
+        normalized = OpenBracketSpacingPattern.Replace(normalized, "$1");
+        normalized = CloseBracketSpacingPattern.Replace(normalized, "$1");
         normalized = MultiSpacePattern.Replace(normalized, " ");
         normalized = Regex.Replace(normalized, @"\n{3,}", "\n\n");
 
@@ -114,5 +130,33 @@ public static class TextSanitizer
         }
 
         return $"<{tag}> {text}".TrimEnd();
+    }
+
+    private static string SplitLikelyConcatenatedWords(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return text;
+
+        string[] tokens = text.Split(' ', StringSplitOptions.None);
+        for (int i = 0; i < tokens.Length; i++)
+        {
+            string token = tokens[i];
+            if (token.Length < 10)
+                continue;
+
+            if (!token.Any(char.IsLower) || !token.Any(char.IsUpper))
+                continue;
+
+            int boundaryCount = LowerUpperBoundaryPattern.Matches(token).Count;
+            if (boundaryCount == 0)
+                continue;
+
+            if (boundaryCount == 1 && token.Length < 12)
+                continue;
+
+            tokens[i] = LowerUpperBoundaryPattern.Replace(token, " ");
+        }
+
+        return string.Join(" ", tokens);
     }
 }

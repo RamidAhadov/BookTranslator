@@ -1,6 +1,7 @@
 using BookTranslator.Models.Layout;
 using BookTranslator.Options;
 using BookTranslator.Utils;
+using iText.IO.Image;
 using iText.Kernel.Colors;
 using iText.Kernel.Geom;
 using iText.Kernel.Pdf;
@@ -49,8 +50,21 @@ public sealed class PdfLayoutAnalyzer : IPdfLayoutAnalyzer
                 viewport: viewport,
                 sourcePageWidth: sourceWidth,
                 sourcePageHeight: sourceHeight,
+                includeImages: _translation.IncludeImagesInPdf,
+                includeInvisibleTextLayer: _translation.IncludeInvisibleTextLayer,
+                useInvisibleTextAsFallbackOnly: _translation.UseInvisibleTextAsFallbackOnly,
+                invisibleFallbackMinVisibleTextChars: _translation.InvisibleFallbackMinVisibleTextChars,
+                invisibleFallbackMinVisibleFragments: _translation.InvisibleFallbackMinVisibleFragments,
+                minVisibleCharsPerFragmentForStrongLayer: _translation.MinVisibleCharsPerFragmentForStrongLayer,
+                mergeLinesIntoParagraphs: _translation.MergeLinesIntoParagraphs,
                 minImageWidth: _translation.MinPdfImageDisplayWidth,
                 minImageHeight: _translation.MinPdfImageDisplayHeight,
+                suppressBackgroundPageImages: _translation.SuppressBackgroundPageImages,
+                backgroundImageMinPageCoverage: _translation.BackgroundImageMinPageCoverage,
+                maxKeptImageCoverageOnTextPages: _translation.MaxKeptImageCoverageOnTextPages,
+                backgroundImageMinTextBlocks: _translation.BackgroundImageMinTextBlocks,
+                backgroundImageMinTextChars: _translation.BackgroundImageMinTextChars,
+                backgroundImageEdgeTolerance: _translation.BackgroundImageEdgeTolerance,
                 log: _log);
 
             new PdfCanvasProcessor(listener).ProcessPageContent(page);
@@ -101,10 +115,24 @@ public sealed class PdfLayoutAnalyzer : IPdfLayoutAnalyzer
         private readonly float _viewportY;
         private readonly float _sourcePageWidth;
         private readonly float _sourcePageHeight;
+        private readonly bool _includeImages;
+        private readonly bool _includeInvisibleTextLayer;
+        private readonly bool _useInvisibleTextAsFallbackOnly;
+        private readonly int _invisibleFallbackMinVisibleTextChars;
+        private readonly int _invisibleFallbackMinVisibleFragments;
+        private readonly float _minVisibleCharsPerFragmentForStrongLayer;
+        private readonly bool _mergeLinesIntoParagraphs;
         private readonly float _minImageWidth;
         private readonly float _minImageHeight;
+        private readonly bool _suppressBackgroundPageImages;
+        private readonly float _backgroundImageMinPageCoverage;
+        private readonly float _maxKeptImageCoverageOnTextPages;
+        private readonly int _backgroundImageMinTextBlocks;
+        private readonly int _backgroundImageMinTextChars;
+        private readonly float _backgroundImageEdgeTolerance;
         private readonly ILogger _log;
-        private readonly List<TextFragment> _textFragments = new();
+        private readonly Dictionary<string, TextFragment> _visibleTextFragmentsBySignature = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, TextFragment> _invisibleTextFragmentsBySignature = new(StringComparer.Ordinal);
         private readonly List<ImageBlock> _imageBlocks = new();
 
         private int _imageIndex;
@@ -114,8 +142,21 @@ public sealed class PdfLayoutAnalyzer : IPdfLayoutAnalyzer
             Rectangle viewport,
             float sourcePageWidth,
             float sourcePageHeight,
+            bool includeImages,
+            bool includeInvisibleTextLayer,
+            bool useInvisibleTextAsFallbackOnly,
+            int invisibleFallbackMinVisibleTextChars,
+            int invisibleFallbackMinVisibleFragments,
+            float minVisibleCharsPerFragmentForStrongLayer,
+            bool mergeLinesIntoParagraphs,
             float minImageWidth,
             float minImageHeight,
+            bool suppressBackgroundPageImages,
+            float backgroundImageMinPageCoverage,
+            float maxKeptImageCoverageOnTextPages,
+            int backgroundImageMinTextBlocks,
+            int backgroundImageMinTextChars,
+            float backgroundImageEdgeTolerance,
             ILogger log)
         {
             _pageNumber = pageNumber;
@@ -123,8 +164,21 @@ public sealed class PdfLayoutAnalyzer : IPdfLayoutAnalyzer
             _viewportY = viewport.GetY();
             _sourcePageWidth = sourcePageWidth;
             _sourcePageHeight = sourcePageHeight;
+            _includeImages = includeImages;
+            _includeInvisibleTextLayer = includeInvisibleTextLayer;
+            _useInvisibleTextAsFallbackOnly = useInvisibleTextAsFallbackOnly;
+            _invisibleFallbackMinVisibleTextChars = Math.Max(0, invisibleFallbackMinVisibleTextChars);
+            _invisibleFallbackMinVisibleFragments = Math.Max(0, invisibleFallbackMinVisibleFragments);
+            _minVisibleCharsPerFragmentForStrongLayer = Math.Max(0.5f, minVisibleCharsPerFragmentForStrongLayer);
+            _mergeLinesIntoParagraphs = mergeLinesIntoParagraphs;
             _minImageWidth = Math.Max(0f, minImageWidth);
             _minImageHeight = Math.Max(0f, minImageHeight);
+            _suppressBackgroundPageImages = suppressBackgroundPageImages;
+            _backgroundImageMinPageCoverage = Math.Clamp(backgroundImageMinPageCoverage, 0f, 1f);
+            _maxKeptImageCoverageOnTextPages = Math.Clamp(maxKeptImageCoverageOnTextPages, 0f, 1f);
+            _backgroundImageMinTextBlocks = Math.Max(0, backgroundImageMinTextBlocks);
+            _backgroundImageMinTextChars = Math.Max(0, backgroundImageMinTextChars);
+            _backgroundImageEdgeTolerance = Math.Max(0f, backgroundImageEdgeTolerance);
             _log = log;
         }
 
@@ -151,7 +205,9 @@ public sealed class PdfLayoutAnalyzer : IPdfLayoutAnalyzer
             int rotation,
             byte[] sourcePagePdfBytes)
         {
-            List<TextBlock> blocks = MergeTextFragments();
+            List<TextFragment> effectiveFragments = BuildEffectiveTextFragments();
+            List<TextBlock> blocks = MergeTextFragments(effectiveFragments);
+            List<ImageBlock> images = FilterImageBlocks(blocks, effectiveFragments.Count);
 
             return new PageObject
             {
@@ -163,13 +219,18 @@ public sealed class PdfLayoutAnalyzer : IPdfLayoutAnalyzer
                 Rotation = rotation,
                 SourcePagePdfBytes = sourcePagePdfBytes,
                 TextBlocks = blocks,
-                ImageBlocks = _imageBlocks
+                ImageBlocks = images
             };
         }
 
         private void HandleTextEvent(IEventData data)
         {
             if (data is not TextRenderInfo textInfo)
+                return;
+
+            int renderMode = GetTextRenderMode(textInfo);
+            bool isInvisible = renderMode is 3 or 7;
+            if (isInvisible && !_includeInvisibleTextLayer)
                 return;
 
             string raw = textInfo.GetText();
@@ -185,7 +246,18 @@ public sealed class PdfLayoutAnalyzer : IPdfLayoutAnalyzer
                 return;
 
             StyleInfo style = ExtractStyle(textInfo);
-            _textFragments.Add(new TextFragment(text, box, style));
+            if (IsLikelyNoiseGlyph(text, box, style))
+                return;
+
+            TextFragment fragment = new(text, box, style, isInvisible);
+            if (isInvisible)
+            {
+                AddOrReplaceTextFragment(_invisibleTextFragmentsBySignature, fragment);
+            }
+            else
+            {
+                AddOrReplaceTextFragment(_visibleTextFragmentsBySignature, fragment);
+            }
         }
 
         private void HandleImageEvent(IEventData data)
@@ -217,9 +289,89 @@ public sealed class PdfLayoutAnalyzer : IPdfLayoutAnalyzer
             _imageBlocks.Add(new ImageBlock(blockId, box, bytes, mimeType));
         }
 
-        private List<TextBlock> MergeTextFragments()
+        private List<ImageBlock> FilterImageBlocks(IReadOnlyList<TextBlock> textBlocks, int textFragmentCount)
         {
-            List<TextFragment> ordered = _textFragments
+            if (!_includeImages || _imageBlocks.Count == 0)
+                return new List<ImageBlock>();
+
+            if (!_suppressBackgroundPageImages)
+                return _imageBlocks;
+
+            int textBlockCount = textBlocks.Count;
+            int textCharCount = textBlocks.Sum(x => TextSanitizer.CleanPdfArtifacts(x.OriginalText).Length);
+            bool hasEnoughText =
+                textFragmentCount >= _backgroundImageMinTextBlocks ||
+                textBlockCount >= _backgroundImageMinTextBlocks ||
+                textCharCount >= _backgroundImageMinTextChars;
+            bool hasAnyText = textFragmentCount > 0 || textBlockCount > 0 || textCharCount > 0;
+
+            float pageArea = MathF.Max(1f, _sourcePageWidth * _sourcePageHeight);
+            float pageAspect = _sourcePageHeight <= 0 ? 1f : _sourcePageWidth / _sourcePageHeight;
+            List<ImageBlock> kept = new(_imageBlocks.Count);
+            int dropped = 0;
+
+            foreach (ImageBlock image in _imageBlocks)
+            {
+                BoundingBox box = image.BoundingBox;
+                float area = MathF.Max(0f, box.Width * box.Height);
+                float coverage = area / pageArea;
+
+                bool nearFullWidth = box.X <= _backgroundImageEdgeTolerance &&
+                                     (_sourcePageWidth - box.Right) <= _backgroundImageEdgeTolerance;
+                bool nearFullHeight = box.Y <= _backgroundImageEdgeTolerance &&
+                                      (_sourcePageHeight - box.Top) <= _backgroundImageEdgeTolerance;
+                bool nearPageFrame = nearFullWidth && nearFullHeight;
+
+                float imageAspect = box.Height <= 0 ? 1f : box.Width / box.Height;
+                bool aspectClose = MathF.Abs(imageAspect - pageAspect) <= 0.08f;
+
+                bool tooLargeForTextPage =
+                    hasAnyText &&
+                    _maxKeptImageCoverageOnTextPages > 0f &&
+                    coverage >= _maxKeptImageCoverageOnTextPages;
+
+                bool likelyBackgroundByTextDensity =
+                    hasEnoughText &&
+                    coverage >= _backgroundImageMinPageCoverage &&
+                    (aspectClose || nearPageFrame);
+
+                // OCR PDFs often have only a thin visible text layer plus a full-page image.
+                // If we keep that image, English source text remains visible in output.
+                bool likelyBackgroundByAnyTextLayer =
+                    !hasEnoughText &&
+                    hasAnyText &&
+                    coverage >= 0.82f &&
+                    (aspectClose || nearPageFrame);
+
+                bool likelyBackground = tooLargeForTextPage || likelyBackgroundByTextDensity || likelyBackgroundByAnyTextLayer;
+
+                if (likelyBackground)
+                {
+                    dropped++;
+                    continue;
+                }
+
+                kept.Add(image);
+            }
+
+            if (dropped > 0)
+            {
+                _log.LogInformation(
+                    "Page {Page}: suppressed {Dropped} likely background page image(s). Kept={Kept}, TextFragments={TextFragments}, TextBlocks={TextBlocks}, TextChars={TextChars}",
+                    _pageNumber,
+                    dropped,
+                    kept.Count,
+                    textFragmentCount,
+                    textBlockCount,
+                    textCharCount);
+            }
+
+            return kept;
+        }
+
+        private List<TextBlock> MergeTextFragments(IReadOnlyList<TextFragment> fragments)
+        {
+            List<TextFragment> ordered = fragments
                 .OrderBy(f => f.Box.Y)
                 .ThenBy(f => f.Box.X)
                 .ToList();
@@ -251,7 +403,9 @@ public sealed class PdfLayoutAnalyzer : IPdfLayoutAnalyzer
             if (current is not null)
                 merged.Add(current);
 
-            List<MergedLine> paragraphs = MergeLinesToParagraphs(merged);
+            List<MergedLine> paragraphs = _mergeLinesIntoParagraphs
+                ? MergeLinesToParagraphs(merged)
+                : merged;
 
             List<TextBlock> result = new(paragraphs.Count);
             int textIndex = 0;
@@ -267,22 +421,161 @@ public sealed class PdfLayoutAnalyzer : IPdfLayoutAnalyzer
                 result.Add(new TextBlock(blockId, paragraph.Box, cleaned, paragraph.Style));
             }
 
-            return result;
+            return DeduplicateOverlappingBlocks(result);
+        }
+
+        private List<TextFragment> BuildEffectiveTextFragments()
+        {
+            if (_visibleTextFragmentsBySignature.Count == 0)
+            {
+                return _includeInvisibleTextLayer
+                    ? _invisibleTextFragmentsBySignature.Values.ToList()
+                    : new List<TextFragment>();
+            }
+
+            if (!_includeInvisibleTextLayer || _invisibleTextFragmentsBySignature.Count == 0)
+                return _visibleTextFragmentsBySignature.Values.ToList();
+
+            int visibleFragments = _visibleTextFragmentsBySignature.Count;
+            int invisibleFragments = _invisibleTextFragmentsBySignature.Count;
+            int visibleChars = CountTextChars(_visibleTextFragmentsBySignature.Values);
+            int invisibleChars = CountTextChars(_invisibleTextFragmentsBySignature.Values);
+            float visibleAvgCharsPerFragment = ComputeAverageCharsPerFragment(visibleChars, visibleFragments);
+            float invisibleAvgCharsPerFragment = ComputeAverageCharsPerFragment(invisibleChars, invisibleFragments);
+
+            bool visibleLayerStrongByChars = visibleChars >= _invisibleFallbackMinVisibleTextChars;
+            bool visibleLayerStrongByDensity =
+                visibleFragments >= _invisibleFallbackMinVisibleFragments &&
+                visibleAvgCharsPerFragment >= _minVisibleCharsPerFragmentForStrongLayer;
+            bool visibleLayerStrong = visibleLayerStrongByChars || visibleLayerStrongByDensity;
+
+            bool visibleLayerLooksDegenerate =
+                visibleAvgCharsPerFragment < MathF.Max(1.1f, _minVisibleCharsPerFragmentForStrongLayer * 0.72f);
+            bool invisibleClearlyDominates =
+                invisibleChars >= Math.Max((int)MathF.Ceiling(visibleChars * 2.8f), visibleChars + 220) &&
+                invisibleFragments >= Math.Max(24, visibleFragments * 2);
+
+            if (visibleLayerStrong && visibleLayerLooksDegenerate && invisibleClearlyDominates)
+                return _invisibleTextFragmentsBySignature.Values.ToList();
+
+            if (visibleLayerStrong)
+                return _visibleTextFragmentsBySignature.Values.ToList();
+
+            if (_useInvisibleTextAsFallbackOnly)
+            {
+                bool invisibleClearlyBetterByChars =
+                    invisibleChars >= Math.Max((int)MathF.Ceiling(visibleChars * 1.35f), visibleChars + 80);
+                bool invisibleClearlyBetterByFragments =
+                    invisibleFragments >= Math.Max(12, visibleFragments + 20);
+                bool visibleLayerLooksSparse =
+                    visibleChars <= Math.Max(_invisibleFallbackMinVisibleTextChars / 2, visibleFragments + 10) &&
+                    visibleLayerLooksDegenerate;
+
+                bool invisibleClearlyBetter =
+                    (invisibleClearlyBetterByChars && invisibleClearlyBetterByFragments) ||
+                    (visibleLayerLooksSparse &&
+                     invisibleChars > visibleChars + 40 &&
+                     invisibleAvgCharsPerFragment >= visibleAvgCharsPerFragment);
+
+                return invisibleClearlyBetter
+                    ? _invisibleTextFragmentsBySignature.Values.ToList()
+                    : _visibleTextFragmentsBySignature.Values.ToList();
+            }
+
+            return invisibleChars > visibleChars
+                ? _invisibleTextFragmentsBySignature.Values.ToList()
+                : _visibleTextFragmentsBySignature.Values.ToList();
+        }
+
+        private static int CountTextChars(IEnumerable<TextFragment> fragments)
+        {
+            int total = 0;
+            foreach (TextFragment fragment in fragments)
+                total += TextSanitizer.CleanPdfArtifacts(fragment.Text).Length;
+
+            return total;
+        }
+
+        private static float ComputeAverageCharsPerFragment(int chars, int fragments)
+        {
+            if (chars <= 0 || fragments <= 0)
+                return 0f;
+
+            return (float)chars / fragments;
+        }
+
+        private static List<TextBlock> DeduplicateOverlappingBlocks(List<TextBlock> blocks)
+        {
+            if (blocks.Count <= 1)
+                return blocks;
+
+            List<TextBlock> kept = new(blocks.Count);
+
+            foreach (TextBlock candidate in blocks)
+            {
+                int duplicateIndex = kept.FindIndex(existing =>
+                    string.Equals(existing.OriginalText, candidate.OriginalText, StringComparison.Ordinal) &&
+                    IsNearDuplicateBounds(existing.BoundingBox, candidate.BoundingBox));
+
+                if (duplicateIndex < 0)
+                {
+                    kept.Add(candidate);
+                    continue;
+                }
+
+                TextBlock existing = kept[duplicateIndex];
+                float existingArea = existing.BoundingBox.Width * existing.BoundingBox.Height;
+                float candidateArea = candidate.BoundingBox.Width * candidate.BoundingBox.Height;
+                if (candidateArea > existingArea + 1f)
+                    kept[duplicateIndex] = candidate;
+            }
+
+            return kept;
+        }
+
+        private static bool IsNearDuplicateBounds(BoundingBox a, BoundingBox b)
+        {
+            float left = MathF.Max(a.X, b.X);
+            float right = MathF.Min(a.Right, b.Right);
+            float top = MathF.Min(a.Top, b.Top);
+            float bottom = MathF.Max(a.Y, b.Y);
+
+            float intersectionWidth = right - left;
+            float intersectionHeight = top - bottom;
+            if (intersectionWidth <= 0 || intersectionHeight <= 0)
+                return false;
+
+            float intersectionArea = intersectionWidth * intersectionHeight;
+            float smallerArea = MathF.Max(1f, MathF.Min(a.Width * a.Height, b.Width * b.Height));
+            float overlapRatio = intersectionArea / smallerArea;
+
+            if (overlapRatio < 0.72f)
+                return false;
+
+            return MathF.Abs(a.X - b.X) <= 4f &&
+                   MathF.Abs(a.Y - b.Y) <= 4f;
         }
 
         private static bool CanMerge(MergedLine current, TextFragment next)
         {
-            if (!AreStylesCompatible(current.Style, next.Style))
+            bool relaxForInvisible = current.ContainsInvisible || next.IsInvisible;
+            if (!relaxForInvisible && !AreStylesCompatible(current.Style, next.Style))
                 return false;
 
             float currentMidY = current.Box.Y + (current.Box.Height / 2f);
             float nextMidY = next.Box.Y + (next.Box.Height / 2f);
             float yDelta = MathF.Abs(currentMidY - nextMidY);
-            if (yDelta > MathF.Max(2f, current.Style.FontSize * 0.45f))
+            float maxYDelta = relaxForInvisible
+                ? MathF.Max(4f, current.Style.FontSize * 0.9f)
+                : MathF.Max(2f, current.Style.FontSize * 0.45f);
+            if (yDelta > maxYDelta)
                 return false;
 
             float horizontalGap = next.Box.X - (current.Box.X + current.Box.Width);
-            return horizontalGap <= MathF.Max(18f, current.Style.FontSize * 1.4f);
+            float maxGap = relaxForInvisible
+                ? MathF.Max(64f, current.Style.FontSize * 7f)
+                : MathF.Max(26f, current.Style.FontSize * 2.2f);
+            return horizontalGap <= maxGap;
         }
 
         private static List<MergedLine> MergeLinesToParagraphs(List<MergedLine> lines)
@@ -319,7 +612,8 @@ public sealed class PdfLayoutAnalyzer : IPdfLayoutAnalyzer
 
         private static bool CanJoinParagraph(MergedLine current, MergedLine next)
         {
-            if (!AreStylesCompatible(current.Style, next.Style))
+            bool relaxForInvisible = current.ContainsInvisible || next.ContainsInvisible;
+            if (!relaxForInvisible && !AreStylesCompatible(current.Style, next.Style))
                 return false;
 
             float currentBottom = current.Box.Y + current.Box.Height;
@@ -328,11 +622,17 @@ public sealed class PdfLayoutAnalyzer : IPdfLayoutAnalyzer
             if (verticalGap < -2f)
                 return false;
 
-            if (verticalGap > MathF.Max(12f, current.Style.FontSize * 1.6f))
+            float maxVerticalGap = relaxForInvisible
+                ? MathF.Max(22f, current.Style.FontSize * 2.4f)
+                : MathF.Max(12f, current.Style.FontSize * 1.6f);
+            if (verticalGap > maxVerticalGap)
                 return false;
 
             float startDelta = MathF.Abs(current.Box.X - next.Box.X);
-            return startDelta <= MathF.Max(24f, current.Style.FontSize * 2f);
+            float maxStartDelta = relaxForInvisible
+                ? MathF.Max(80f, current.Style.FontSize * 6f)
+                : MathF.Max(24f, current.Style.FontSize * 2f);
+            return startDelta <= maxStartDelta;
         }
 
         private static bool AreStylesCompatible(StyleInfo a, StyleInfo b)
@@ -448,19 +748,30 @@ public sealed class PdfLayoutAnalyzer : IPdfLayoutAnalyzer
         {
             Matrix ctm = info.GetImageCtm();
 
-            float a = ctm.Get(Matrix.I11);
-            float b = ctm.Get(Matrix.I12);
-            float c = ctm.Get(Matrix.I21);
-            float d = ctm.Get(Matrix.I22);
+            Vector p0 = new Vector(0, 0, 1).Cross(ctm);
+            Vector p1 = new Vector(1, 0, 1).Cross(ctm);
+            Vector p2 = new Vector(0, 1, 1).Cross(ctm);
+            Vector p3 = new Vector(1, 1, 1).Cross(ctm);
 
-            float displayWidth = MathF.Sqrt(a * a + b * b);
-            float displayHeight = MathF.Sqrt(c * c + d * d);
+            float minX = MathF.Min(MathF.Min(p0.Get(Vector.I1), p1.Get(Vector.I1)), MathF.Min(p2.Get(Vector.I1), p3.Get(Vector.I1)));
+            float maxX = MathF.Max(MathF.Max(p0.Get(Vector.I1), p1.Get(Vector.I1)), MathF.Max(p2.Get(Vector.I1), p3.Get(Vector.I1)));
+            float minY = MathF.Min(MathF.Min(p0.Get(Vector.I2), p1.Get(Vector.I2)), MathF.Min(p2.Get(Vector.I2), p3.Get(Vector.I2)));
+            float maxY = MathF.Max(MathF.Max(p0.Get(Vector.I2), p1.Get(Vector.I2)), MathF.Max(p2.Get(Vector.I2), p3.Get(Vector.I2)));
 
-            float x = ctm.Get(Matrix.I31);
-            float y = ctm.Get(Matrix.I32);
-
-            box = new BoundingBox(x, y, MathF.Abs(displayWidth), MathF.Abs(displayHeight));
+            box = new BoundingBox(minX, minY, MathF.Max(0f, maxX - minX), MathF.Max(0f, maxY - minY));
             return box.Width > 0 && box.Height > 0;
+        }
+
+        private static int GetTextRenderMode(TextRenderInfo info)
+        {
+            try
+            {
+                return info.GetTextRenderMode();
+            }
+            catch
+            {
+                return 0;
+            }
         }
 
         private bool TryTransformToLayoutBox(BoundingBox rawBox, out BoundingBox layoutBox)
@@ -498,17 +809,37 @@ public sealed class PdfLayoutAnalyzer : IPdfLayoutAnalyzer
             if (shifted is null) return direct;
             if (direct is null) return shifted;
 
+            float shiftedScore = ScoreCandidate(shifted.Value);
+            float directScore = ScoreCandidate(direct.Value);
+            if (MathF.Abs(shiftedScore - directScore) > 0.01f)
+                return shiftedScore > directScore ? shifted : direct;
+
             float coverageDelta = shifted.Value.Coverage - direct.Value.Coverage;
             if (MathF.Abs(coverageDelta) > 0.0001f)
                 return coverageDelta > 0 ? shifted : direct;
 
-            // If CropBox origin is offset and both candidates are equally valid,
-            // prefer the offset-normalized coordinates to keep output aligned to the
-            // visible page view.
             if (MathF.Abs(_viewportX) > 0.001f || MathF.Abs(_viewportY) > 0.001f)
                 return shifted;
 
+            // Prefer direct on exact ties for zero-offset pages.
             return direct;
+        }
+
+        private float ScoreCandidate(TransformCandidate candidate)
+        {
+            float edgePad = 2f;
+            float penalty = 0f;
+
+            if (candidate.Left <= edgePad)
+                penalty += 25f;
+            if (candidate.Bottom <= edgePad)
+                penalty += 20f;
+            if ((_sourcePageWidth - (candidate.Left + candidate.Width)) <= edgePad)
+                penalty += 25f;
+            if ((_sourcePageHeight - candidate.Top) <= edgePad)
+                penalty += 20f;
+
+            return (candidate.Coverage * 1000f) - penalty;
         }
 
         private TransformCandidate? TryBuildCandidate(float left, float bottom, float width, float height)
@@ -543,28 +874,124 @@ public sealed class PdfLayoutAnalyzer : IPdfLayoutAnalyzer
                 coverage);
         }
 
+        private static void AddOrReplaceTextFragment(IDictionary<string, TextFragment> target, TextFragment candidate)
+        {
+            string signature = BuildTextSignature(candidate.Text, candidate.Box);
+            if (!target.TryGetValue(signature, out TextFragment existing))
+            {
+                target[signature] = candidate;
+                return;
+            }
+
+            if (ShouldReplace(existing, candidate))
+                target[signature] = candidate;
+        }
+
+        private static bool IsLikelyNoiseGlyph(string text, BoundingBox box, StyleInfo style)
+        {
+            string trimmed = text.Trim();
+            if (trimmed.Length == 0)
+                return false;
+
+            if (trimmed.Length > 2)
+                return IsLikelyTinyPunctuationNoise(trimmed, box, style);
+
+            if (trimmed.Any(char.IsLetterOrDigit))
+                return false;
+
+            if (!trimmed.All(IsAllowedNoisePunctuation))
+                return false;
+
+            float maxWidth = MathF.Max(8f, style.FontSize * 1.1f);
+            float maxHeight = MathF.Max(8f, style.FontSize * 1.2f);
+            return box.Width <= maxWidth && box.Height <= maxHeight;
+        }
+
+        private static bool IsLikelyTinyPunctuationNoise(string trimmed, BoundingBox box, StyleInfo style)
+        {
+            if (trimmed.Length is < 3 or > 6)
+                return false;
+
+            if (!trimmed.All(ch => !char.IsLetterOrDigit(ch)))
+                return false;
+
+            if (!trimmed.All(IsAllowedNoisePunctuation))
+                return false;
+
+            float maxWidth = MathF.Max(14f, style.FontSize * 2.2f);
+            float maxHeight = MathF.Max(8f, style.FontSize * 1.35f);
+            return box.Width <= maxWidth && box.Height <= maxHeight;
+        }
+
+        private static bool IsAllowedNoisePunctuation(char ch)
+        {
+            return ch switch
+            {
+                '-' or '_' or '.' or ':' or ',' or ';' or '\'' or '`' or '\u2013' or '\u2014' or '\u00B7' => true,
+                _ => false
+            };
+        }
+
+        private static bool ShouldReplace(TextFragment current, TextFragment candidate)
+        {
+            if (current.IsInvisible && !candidate.IsInvisible)
+                return true;
+
+            if (!current.IsInvisible && candidate.IsInvisible)
+                return false;
+
+            float currentArea = current.Box.Width * current.Box.Height;
+            float candidateArea = candidate.Box.Width * candidate.Box.Height;
+            if (candidateArea > currentArea + 0.5f)
+                return true;
+
+            return candidate.Style.FontSize > current.Style.FontSize + 0.2f;
+        }
+
+        private static string BuildTextSignature(string text, BoundingBox box)
+        {
+            float x = Quantize(box.X, 1.25f);
+            float y = Quantize(box.Y, 1.25f);
+            float w = Quantize(box.Width, 1.25f);
+            float h = Quantize(box.Height, 1.25f);
+
+            return $"{text}|{x:0.##}|{y:0.##}|{w:0.##}|{h:0.##}";
+        }
+
+        private static float Quantize(float value, float step)
+        {
+            if (step <= 0f)
+                return value;
+
+            return MathF.Round(value / step) * step;
+        }
+
         private byte[] TryReadImageBytes(PdfImageXObject image)
         {
             try
             {
-                byte[] direct = image.GetImageBytes(true);
-                if (direct.Length > 0)
-                    return direct;
+                byte[] decoded = image.GetImageBytes(true);
+                if (decoded.Length > 0 && ImageDataFactory.IsSupportedType(decoded))
+                    return decoded;
+
+                byte[] encoded = image.GetImageBytes(false);
+                if (encoded.Length > 0 && ImageDataFactory.IsSupportedType(encoded))
+                    return encoded;
             }
-            catch
+            catch (Exception ex)
             {
-                // ignored
+                _log.LogDebug(ex, "Page {Page}: failed to decode image bytes.", _pageNumber);
             }
 
             try
             {
-                byte[] raw = image.GetPdfObject().GetBytes();
-                if (raw.Length > 0)
-                    return raw;
+                byte[] fallback = image.GetImageBytes(true);
+                if (fallback.Length > 0 && GuessMimeType(fallback) != "application/octet-stream")
+                    return fallback;
             }
-            catch (Exception ex)
+            catch
             {
-                _log.LogWarning(ex, "Page {Page}: failed to read image bytes.", _pageNumber);
+                // ignored
             }
 
             return Array.Empty<byte>();
@@ -589,7 +1016,7 @@ public sealed class PdfLayoutAnalyzer : IPdfLayoutAnalyzer
             return "application/octet-stream";
         }
 
-        private readonly record struct TextFragment(string Text, BoundingBox Box, StyleInfo Style);
+        private readonly record struct TextFragment(string Text, BoundingBox Box, StyleInfo Style, bool IsInvisible);
         private readonly record struct TransformCandidate(
             float Left,
             float Bottom,
@@ -600,25 +1027,27 @@ public sealed class PdfLayoutAnalyzer : IPdfLayoutAnalyzer
 
         private sealed class MergedLine
         {
-            private MergedLine(BoundingBox box, string text, StyleInfo style)
+            private MergedLine(BoundingBox box, string text, StyleInfo style, bool containsInvisible)
             {
                 Box = box;
                 Text = text;
                 Style = style;
+                ContainsInvisible = containsInvisible;
             }
 
             public BoundingBox Box { get; private set; }
             public string Text { get; private set; }
             public StyleInfo Style { get; }
+            public bool ContainsInvisible { get; private set; }
 
             public static MergedLine From(TextFragment fragment)
             {
-                return new MergedLine(fragment.Box, fragment.Text, fragment.Style);
+                return new MergedLine(fragment.Box, fragment.Text, fragment.Style, fragment.IsInvisible);
             }
 
             public MergedLine Clone()
             {
-                return new MergedLine(Box, Text, Style);
+                return new MergedLine(Box, Text, Style, ContainsInvisible);
             }
 
             public void Append(TextFragment fragment)
@@ -631,6 +1060,7 @@ public sealed class PdfLayoutAnalyzer : IPdfLayoutAnalyzer
                 bool addSpace = NeedsSpace(Text, fragment.Text);
                 Text = addSpace ? $"{Text} {fragment.Text}" : Text + fragment.Text;
                 Box = new BoundingBox(newX, newY, newRight - newX, newTop - newY);
+                ContainsInvisible = ContainsInvisible || fragment.IsInvisible;
             }
 
             public void AppendParagraph(MergedLine line)
@@ -643,6 +1073,7 @@ public sealed class PdfLayoutAnalyzer : IPdfLayoutAnalyzer
                 bool addSpace = NeedsSpace(Text, line.Text);
                 Text = addSpace ? $"{Text} {line.Text}" : Text + line.Text;
                 Box = new BoundingBox(newX, newY, newRight - newX, newTop - newY);
+                ContainsInvisible = ContainsInvisible || line.ContainsInvisible;
             }
 
             private static bool NeedsSpace(string left, string right)
@@ -664,3 +1095,4 @@ public sealed class PdfLayoutAnalyzer : IPdfLayoutAnalyzer
         }
     }
 }
+
