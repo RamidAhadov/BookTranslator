@@ -1,10 +1,46 @@
+﻿using System.Text;
 using System.Text.RegularExpressions;
-using System.Text;
 
 namespace BookTranslator.Utils;
 
 public static class TextSanitizer
 {
+    private static readonly Regex TaggedLineParts =
+        new(@"^<(?<tag>H1|H2|P|CODE)>\s*(?<text>.*)$", RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
+    private static readonly Regex SpacedLettersPattern =
+        new(@"\b(?:[\p{L}]\s+){2,}[\p{L}]\b", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static readonly Regex IsolatedXNoisePattern =
+        new(@"(?<=[\p{L}])\s+[xX]\s+(?=[\p{L}])", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static readonly Regex ArtifactTokenPattern =
+        new(@"(^|\s)(ptg|x)(?=\s|$)", RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
+    private static readonly Regex JoinedXArtifactPattern =
+        new(@"\b[xX](?=[\p{Lu}]{4,}\b)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static readonly Regex MultiSpacePattern =
+        new(@"[ \t]{2,}", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    public static string CleanPdfArtifacts(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return string.Empty;
+
+        string normalized = text.Replace("\r\n", "\n").Replace('\r', '\n');
+        normalized = new string(normalized.Where(ch => !char.IsControl(ch) || ch is '\n' or '\t').ToArray());
+
+        normalized = SpacedLettersPattern.Replace(normalized, m => m.Value.Replace(" ", ""));
+        normalized = IsolatedXNoisePattern.Replace(normalized, " ");
+        normalized = ArtifactTokenPattern.Replace(normalized, " ");
+        normalized = JoinedXArtifactPattern.Replace(normalized, "");
+        normalized = MultiSpacePattern.Replace(normalized, " ");
+        normalized = Regex.Replace(normalized, @"\n{3,}", "\n\n");
+
+        return normalized.Trim();
+    }
+
     public static string Normalize(string text, bool stripExtraBlankLines)
     {
         text = text.Replace("\r\n", "\n").Replace("\r", "\n");
@@ -14,7 +50,7 @@ public static class TextSanitizer
 
         return text.Trim();
     }
-    
+
     public static string SanitizeModelOutput(string s)
     {
         if (string.IsNullOrWhiteSpace(s)) return s;
@@ -46,15 +82,37 @@ public static class TextSanitizer
             line = Regex.Replace(line, @"<\s*h1\s*>", "<H1>", RegexOptions.IgnoreCase);
             line = Regex.Replace(line, @"<\s*h2\s*>", "<H2>", RegexOptions.IgnoreCase);
             line = Regex.Replace(line, @"<\s*p\s*>", "<P>", RegexOptions.IgnoreCase);
-            line = Regex.Replace(line, @"</\s*(h1|h2|p)\s*>", "", RegexOptions.IgnoreCase).Trim();
+            line = Regex.Replace(line, @"<\s*code\s*>", "<CODE>", RegexOptions.IgnoreCase);
+            line = Regex.Replace(line, @"</\s*(h1|h2|p|code)\s*>", "", RegexOptions.IgnoreCase).Trim();
 
-            if (!Regex.IsMatch(line, @"^<(H1|H2|P)>", RegexOptions.IgnoreCase))
+            if (!Regex.IsMatch(line, @"^<(H1|H2|P|CODE)>", RegexOptions.IgnoreCase))
                 line = "<P> " + line;
+
+            line = NormalizeLineContent(line);
 
             sb.AppendLine(line);
             sb.AppendLine();
         }
 
         return sb.ToString().Trim();
+    }
+
+    private static string NormalizeLineContent(string line)
+    {
+        Match m = TaggedLineParts.Match(line);
+        if (!m.Success)
+            return line;
+
+        string tag = m.Groups["tag"].Value.ToUpperInvariant();
+        string text = m.Groups["text"].Value;
+
+        if (tag != "CODE")
+        {
+            text = IsolatedXNoisePattern.Replace(text, " ");
+            text = SpacedLettersPattern.Replace(text, mm => mm.Value.Replace(" ", ""));
+            text = MultiSpacePattern.Replace(text, " ").Trim();
+        }
+
+        return $"<{tag}> {text}".TrimEnd();
     }
 }

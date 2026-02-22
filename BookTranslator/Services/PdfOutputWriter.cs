@@ -51,6 +51,7 @@ public sealed class PdfOutputWriter : IOutputWriter
 
         string regularPath = Path.Combine(AppContext.BaseDirectory, "Assets", "Fonts", _fontOptions.RegularFontStyle);
         string boldPath = Path.Combine(AppContext.BaseDirectory, "Assets", "Fonts", _fontOptions.BoldFontStyle);
+        string codePath = Path.Combine(AppContext.BaseDirectory, "Assets", "Fonts", _fontOptions.CodeFontStyle);
 
         using PdfWriter writer = new PdfWriter(path);
         using PdfDocument pdf = new PdfDocument(writer);
@@ -62,9 +63,14 @@ public sealed class PdfOutputWriter : IOutputWriter
         PdfFont bold = PdfFontFactory.CreateFont(
             boldPath, PdfEncodings.IDENTITY_H, PdfFontFactory.EmbeddingStrategy.FORCE_EMBEDDED);
 
+        PdfFont code = PdfFontFactory.CreateFont(
+            codePath, PdfEncodings.IDENTITY_H, PdfFontFactory.EmbeddingStrategy.FORCE_EMBEDDED);
+
         doc.SetMargins(margins.Top, margins.Right, margins.Bottom, margins.Left);
 
         HyphenationConfig hyphenation = new HyphenationConfig("en", "US", 3, 3);
+
+        content = PdfImageMarker.NormalizeCorruptedMarkers(content);
 
         if (!_translationOptions.IncludeImagesInPdf)
             content = PdfImageMarker.TokenRegex.Replace(content, string.Empty);
@@ -81,7 +87,7 @@ public sealed class PdfOutputWriter : IOutputWriter
 
             if (matches.Count == 0)
             {
-                doc.Add(buildParagraph(effectiveKind, b.Text, regular, bold, hyphenation));
+                doc.Add(buildParagraph(effectiveKind, b.Text, regular, bold, code, hyphenation));
                 continue;
             }
 
@@ -91,7 +97,7 @@ public sealed class PdfOutputWriter : IOutputWriter
             {
                 string before = b.Text[cursor..m.Index].Trim();
                 if (!string.IsNullOrWhiteSpace(before))
-                    doc.Add(buildParagraph(effectiveKind, before, regular, bold, hyphenation));
+                    doc.Add(buildParagraph(effectiveKind, before, regular, bold, code, hyphenation));
 
                 int imageIndex = int.Parse(m.Groups[1].Value);
                 if (imagesByIndex.TryGetValue(imageIndex, out PdfImageXObjectAsset? imageAsset))
@@ -125,14 +131,14 @@ public sealed class PdfOutputWriter : IOutputWriter
 
             string after = b.Text[cursor..].Trim();
             if (!string.IsNullOrWhiteSpace(after))
-                doc.Add(buildParagraph(effectiveKind, after, regular, bold, hyphenation));
+                doc.Add(buildParagraph(effectiveKind, after, regular, bold, code, hyphenation));
         }
 
         doc.Close();
         return Task.CompletedTask;
     }
 
-    private Paragraph buildParagraph(BlockKind kind, string text, PdfFont regular, PdfFont bold, HyphenationConfig hyphenation)
+    private Paragraph buildParagraph(BlockKind kind, string text, PdfFont regular, PdfFont bold, PdfFont code, HyphenationConfig hyphenation)
     {
         switch (kind)
         {
@@ -152,6 +158,13 @@ public sealed class PdfOutputWriter : IOutputWriter
                     .SetFirstLineIndent(0)
                     .SetMarginTop(_fontOptions.SpaceBefore + 4)
                     .SetMarginBottom(_fontOptions.SpaceAfter + 4);
+            case BlockKind.Code:
+                return new Paragraph(text)
+                    .SetFont(code)
+                    .SetFontSize(_fontOptions.FontSize * 0.95f)
+                    .SetTextAlignment(TextAlignment.LEFT)
+                    .SetFirstLineIndent(0)
+                    .SetMultipliedLeading(_fontOptions.LeadingMultiplier);
 
             default:
                 return new Paragraph(text)
@@ -166,7 +179,16 @@ public sealed class PdfOutputWriter : IOutputWriter
 
     private Dictionary<int, PdfImageXObjectAsset> loadImagesByIndex(string sourcePdfPath, PdfDocument targetPdf)
     {
-        IReadOnlyList<PdfImageXObjectAsset> images = PdfContentFlowExtractor.ExtractImagesInOrder(sourcePdfPath, targetPdf, _log);
+        IReadOnlyList<PdfImageXObjectAsset> images = PdfContentFlowExtractor.ExtractImagesInOrder(
+            sourcePdfPath,
+            targetPdf,
+            deduplicatePdfImages: _translationOptions.DeduplicatePdfImages,
+            maxOccurrencesPerImageSignature: _translationOptions.MaxOccurrencesPerImageSignature,
+            maxPdfImagesPerPage: _translationOptions.MaxPdfImagesPerPage,
+            minPdfImageDisplayWidth: _translationOptions.MinPdfImageDisplayWidth,
+            minPdfImageDisplayHeight: _translationOptions.MinPdfImageDisplayHeight,
+            overlayMergeDistancePx: _translationOptions.OverlayMergeDistancePx,
+            log: _log);
         Dictionary<int, PdfImageXObjectAsset> result = new Dictionary<int, PdfImageXObjectAsset>(images.Count);
 
         foreach (PdfImageXObjectAsset img in images)

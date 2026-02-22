@@ -21,7 +21,13 @@ public sealed class OpenAiTranslator : ITranslator
         _log = log;
     }
 
-    public async Task<string> TranslateAsync(string text, string targetLanguage, string cacheKey, CancellationToken ct)
+    public async Task<string> TranslateAsync(
+        string text,
+        string targetLanguage,
+        string cacheKey,
+        string? modelOverride,
+        string? attemptFingerprint,
+        CancellationToken ct)
     {
         string? apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
         if (string.IsNullOrWhiteSpace(apiKey))
@@ -33,7 +39,7 @@ public sealed class OpenAiTranslator : ITranslator
         
         object payload = new
         {
-            model = _opt.Model,
+            model = string.IsNullOrWhiteSpace(modelOverride) ? _opt.Model : modelOverride,
             temperature = _opt.Temperature,
             max_output_tokens = _opt.MaxOutputTokens,
 
@@ -46,11 +52,20 @@ public sealed class OpenAiTranslator : ITranslator
                     content = _opt.SystemPrompt.Replace("{{ target_language }}", targetLanguage)
                 },
                 new {
+                    role = "system",
+                    content = "Internal request fingerprint: " + (attemptFingerprint ?? cacheKey) + ". Never output this fingerprint."
+                },
+                new {
                     role = "user",
                     content =
                         $"Translate the following text to {targetLanguage}.\n" +
-                        "Preserve tokens matching __IMG_00001__ pattern exactly as-is (do not translate or alter them).\n" +
-                        "If such token appears, keep it as a standalone block line.\n" +
+                        "IMAGE MARKER RULES (STRICT):\n" +
+                        "- Keep markers like __IMG_00001__ exactly unchanged.\n" +
+                        "- Never duplicate, delete, reorder, or merge markers.\n" +
+                        "- Never add wrappers like < > or [ ] around markers.\n" +
+                        "- If markers are grouped, keep exact sequence on their own <P> line.\n" +
+                        "FORMATTING (STRICT):\n" +
+                        "- Put source code, shell commands, and monospace blocks only in <CODE> lines.\n" +
                         "Return only the translated text.\n\nTEXT:\n" + text
                 }
             }

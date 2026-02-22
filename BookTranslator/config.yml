@@ -1,6 +1,8 @@
 OpenAI:
   BaseUrl: https://api.openai.com/
   Model: gpt-4o-mini
+  FallbackModels:
+    - gpt-4.1-mini
   MaxOutputTokens: 5000
   Temperature: 0
   SystemPrompt: |-
@@ -11,49 +13,103 @@ OpenAI:
     Preserve meaning, tone, and technical accuracy.
     Fix broken words caused by PDF extraction.
     Normalize spacing and line breaks.
+    If letters of a word are split by spaces (example: "D E S I G N P A T T E R N S"), merge them into a normal word.
+    If two words are accidentally concatenated (example: "Design PatternsHow can"), insert the missing space before translation.
 
     Translation rules:
     - Translate all headings and body text into {{ target_language }}.
     - Keep proper names (people, companies, products) in original form.
     - Keep numbers, URLs, file paths, command lines, and code tokens unchanged.
+    - Never translate source code, shell commands, SQL, JSON, XML, YAML, or config keys/values.
+    - Preserve code/command lines exactly (same symbols and casing).
     - Do not merge headings with paragraph text.
     - Do not output commentary. Output only tagged lines.
     - The output language must be {{ target_language }}.
 
     Output format (STRICT):
-    - Each non-empty output line must start with exactly one tag: <H1>, <H2>, or <P>.
+    - Each non-empty output line must start with exactly one tag: <H1>, <H2>, <P>, or <CODE>.
     - Do not use any other tags.
     - Do not output text outside these tags.
     - Use one logical block per line and add a blank line between blocks.
     - A pure number (example: 10, 3.1, 2020) must never be H1/H2.
     - Table of contents lines must be <P>, not headings.
-    - Code or commands must be separate <P> lines.
+    - Code or commands must be separate <CODE> lines.
+    - Pattern names with page numbers (example: "Command (233)", "Observer (293)") are NOT code; tag them as <P>.
 
     Tag rules:
     - Use <H1> for PART I / PART II / PART III (main parts).
     - Use <H2> for chapter titles and section headings.
     - Use <P> for all normal paragraphs, lists, running headers/footers, table of contents items, and page markers.
+    - Use <CODE> ONLY for source code, shell commands, SQL, JSON, XML, YAML, config snippets, and inline code-only lines.
+    - Never use <CODE> for titles, table-of-contents items, pattern names, or plain prose.
     - Do not add closing tags like </H1> or </P>.
 
     Lists:
     - If the source uses bullets, output them as "-" in <P> lines.
 
+    IMAGE MARKER RULES (STRICT):
+    - Keep all image markers (example: __IMG_00001__) exactly as they appear in the source.
+    - Never duplicate, delete, or merge markers. One source marker equals one output marker.
+    - Never translate or modify the text inside marker underscores.
+    - Do not add extra symbols like < > or [ ] around markers.
+    - If multiple markers appear together, keep their exact sequence on their own <P> line.
+
+    FORMATTING (STRICT):
+    - Ensure source code, shell commands, and monospace/Courier-like blocks are strictly emitted as <CODE> lines.
+
     Output only the formatted translated text in {{ target_language }}.
 
+Gemini:
+  BaseUrl: https://generativelanguage.googleapis.com/
+  Model: gemini-2.5-flash
+  Temperature: 0
+  MaxOutputTokens: 16384
+  ApiKeyEnvironmentVariable: GEMINI_API_KEY
+  EnableRateLimit: true
+  MaxRequestsPerSecond: 2
+  MaxBlocksPerRequest: 10
+  MaxInputCharsPerRequest: 6000
+
+OCR:
+  Enabled: true
+  Provider: azure-read
+  AzureEndpoint: https://booktranslatorocr.cognitiveservices.azure.com/
+  AzureApiKey: AZURE_KEY_HERE
+  AzureApiVersion: v3.2
+  PollIntervalMs: 1200
+  MaxPollAttempts: 12
+  MaxImagesPerBatch: 1
+  MinImageBytesForOcr: 1024
+  MaxRequestsPerMinute: 18
+  RetryAfter429Ms: 4000
+  MinLineConfidence: 0.55
+  DropVerticalText: true
+
 Translation:
-  InputPath: C:\Users\Ramid\Desktop\building_secure_and_reliable_systems (old).pdf
+  InputPath: C:\Users\Ramid\Desktop\Desing_patterns.pdf
   OutputFormat: pdf
+  TranslatorProvider: gemini
   IncludeImagesInPdf: true
+  DeduplicatePdfImages: true
+  MaxOccurrencesPerImageSignature: 1
+  MaxPdfImagesPerPage: 6
+  MinPdfImageDisplayWidth: 15
+  MinPdfImageDisplayHeight: 15
+  OverlayMergeDistancePx: 5
+  EnableDynamicFontScaling: true
+  MinAutoFontSize: 7
+  FontScaleStep: 0.5
+  ClearOriginalTextArea: true
   TargetLanguage: Azerbaijani
-  OutputFolder: C:\Users\Ramid\Desktop\TranslatedPdfs\BuildingSecureAndReliableSystems\
+  OutputFolder: C:\Users\Ramid\Desktop\TranslatedPdfs\DesignPatterns\
   MaxCharsPerChunk: 5000
   MaxDegreeOfParallelism: 4
   CheckpointDir: checkpoints
   Resume: true
   MaxAttemptsPerChunk: 3
   QuarantineAfterAttempts: 3
-  MinOutputToInputRatio: 0.30
-  MinOutputChars: 40
+  MinOutputToInputRatio: 0.25
+  MinOutputChars: 15
 
 Font:
   PageSize: A4

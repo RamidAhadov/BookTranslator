@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using BookTranslator.Models;
 using BookTranslator.Options;
@@ -13,7 +14,8 @@ public sealed class FileCheckpointStore : ICheckpointStore
     private readonly OpenAiOptions _openAi;
     private readonly JsonSerializerOptions _jsonOpt = new(JsonSerializerDefaults.Web)
     {
-        WriteIndented = true
+        WriteIndented = true,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
 
     private readonly object _mapSync = new();

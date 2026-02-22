@@ -6,5 +6,7 @@ public interface ITranslator
         string text,
         string targetLanguage,
         string cacheKey,
+        string? modelOverride,
+        string? attemptFingerprint,
         CancellationToken ct);
 }

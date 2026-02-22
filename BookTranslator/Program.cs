@@ -25,11 +25,24 @@ public static class Program
             .ConfigureServices((ctx, services) =>
             {
                 services.Configure<OpenAiOptions>(ctx.Configuration.GetSection("OpenAI"));
+                services.Configure<GeminiOptions>(ctx.Configuration.GetSection("Gemini"));
+                services.Configure<OcrOptions>(ctx.Configuration.GetSection("OCR"));
                 services.Configure<TranslationOptions>(ctx.Configuration.GetSection("Translation"));
                 services.Configure<TestingOptions>(ctx.Configuration.GetSection("Testing"));
                 services.Configure<FontOptions>(ctx.Configuration.GetSection("Font"));
 
                 services.AddHttpClient("OpenAI");
+                services.AddHttpClient("Gemini");
+                services.AddHttpClient("AzureOcr");
+
+                services.AddSingleton<AzureReadOcrService>();
+                services.AddSingleton<NullOcrService>();
+                services.AddSingleton<IOcrService>(sp =>
+                {
+                    OcrOptions ocr = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<OcrOptions>>().Value;
+                    bool enabled = ocr.Enabled && string.Equals(ocr.Provider, "azure-read", StringComparison.OrdinalIgnoreCase);
+                    return enabled ? sp.GetRequiredService<AzureReadOcrService>() : sp.GetRequiredService<NullOcrService>();
+                });
 
                 services.AddSingleton<IPdfTextExtractor, PdfPigTextExtractor>();
                 services.AddSingleton<ITextChunker, ParagraphTextChunker>();
@@ -53,7 +66,19 @@ public static class Program
                     };
                 });
 
-                services.AddSingleton<TranslationPipeline>();
+                services.AddSingleton<IPdfLayoutAnalyzer, PdfLayoutAnalyzer>();
+                services.AddSingleton<GeminiMultimodalTranslator>();
+                services.AddSingleton<GptTranslatorService>();
+                services.AddSingleton<ILayoutCheckpointStore, FileLayoutCheckpointStore>();
+                services.AddSingleton<ITranslatorService>(sp =>
+                {
+                    TranslationOptions opt = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<TranslationOptions>>().Value;
+                    return string.Equals(opt.TranslatorProvider, "gpt", StringComparison.OrdinalIgnoreCase)
+                        ? sp.GetRequiredService<GptTranslatorService>()
+                        : sp.GetRequiredService<GeminiMultimodalTranslator>();
+                });
+                services.AddSingleton<PdfReconstructor>();
+                services.AddSingleton<LayoutTranslationPipeline>();
             })
             .ConfigureLogging(logging =>
             {
@@ -67,7 +92,7 @@ public static class Program
             })
             .Build();
 
-        var pipeline = host.Services.GetRequiredService<TranslationPipeline>();
+        var pipeline = host.Services.GetRequiredService<LayoutTranslationPipeline>();
 
         var cts = new CancellationTokenSource();
         Console.CancelKeyPress += (_, e) =>

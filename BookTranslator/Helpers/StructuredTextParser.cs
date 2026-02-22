@@ -7,15 +7,15 @@ namespace BookTranslator.Helpers;
 public static class StructuredTextParser
 {
     private static readonly Regex OpeningTagLine =
-        new(@"^\s*(?<bullet>[-*]\s+)?<(?<tag>H1|H2|P)>\s*(?<text>.*)$",
+        new(@"^\s*(?<bullet>[-*]\s+)?<(?<tag>H1|H2|P|CODE)>\s*(?<text>.*)$",
             RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
     private static readonly Regex ClosingTagLine =
-        new(@"^\s*</(H1|H2|P)>\s*$",
+        new(@"^\s*</(H1|H2|P|CODE)>\s*$",
             RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
     private static readonly Regex InlineTagCleanup =
-        new(@"</?(H1|H2|P)>", RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+        new(@"</?(H1|H2|P|CODE)>", RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
     public static IReadOnlyList<StructuredBlock> Parse(string content)
     {
@@ -44,6 +44,7 @@ public static class StructuredTextParser
         {
             "H1" => BlockKind.H1,
             "H2" => BlockKind.H2,
+            "CODE" => BlockKind.Code,
             _ => BlockKind.P
         };
 

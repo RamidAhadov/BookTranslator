@@ -14,6 +14,7 @@ public sealed class TranslationOrchestrator
     private readonly ICheckpointStore _store;
     private readonly IChunkValidator _validator;
     private readonly TranslationOptions _opt;
+    private readonly OpenAiOptions _openAiOpt;
     private readonly ILogger<TranslationOrchestrator> _log;
 
     public TranslationOrchestrator(
@@ -21,12 +22,14 @@ public sealed class TranslationOrchestrator
         ICheckpointStore store,
         IChunkValidator validator,
         IOptions<TranslationOptions> opt,
+        IOptions<OpenAiOptions> openAiOpt,
         ILogger<TranslationOrchestrator> log)
     {
         _translator = translator;
         _store = store;
         _validator = validator;
         _opt = opt.Value;
+        _openAiOpt = openAiOpt.Value;
         _log = log;
     }
 
@@ -119,6 +122,7 @@ public sealed class TranslationOrchestrator
 
         int attempts = 0;
         Exception? lastEx = null;
+        List<string> modelSequence = BuildModelSequence(_openAiOpt);
 
         while (attempts < _opt.MaxAttemptsPerChunk)
         {
@@ -126,9 +130,19 @@ public sealed class TranslationOrchestrator
             try
             {
                 string cacheKey = cacheKeyFactory(chunk);
+                string selectedModel = modelSequence[(attempts - 1) % modelSequence.Count];
+                string fingerprint = $"{cacheKey}|attempt={attempts}|model={selectedModel}|chunk={chunk.Index:D5}";
 
                 Stopwatch sw = Stopwatch.StartNew();
-                string output = await _translator.TranslateAsync(chunk.Text, targetLanguage, cacheKey, ct);
+                _log.LogInformation("Chunk {Idx} attempt {Attempt}: using model {Model}.", chunk.Index, attempts, selectedModel);
+
+                string output = await _translator.TranslateAsync(
+                    chunk.Text,
+                    targetLanguage,
+                    cacheKey,
+                    modelOverride: selectedModel,
+                    attemptFingerprint: fingerprint,
+                    ct: ct);
                 output = TextSanitizer.SanitizeModelOutput(output);
                 sw.Stop();
 
@@ -148,6 +162,7 @@ public sealed class TranslationOrchestrator
             {
                 lastEx = ex;
                 string msg = ex.Message;
+                bool validationFailure = msg.Contains("Validation failed:", StringComparison.OrdinalIgnoreCase);
 
                 if (msg.Contains("insufficient_quota", StringComparison.OrdinalIgnoreCase))
                 {
@@ -167,7 +182,8 @@ public sealed class TranslationOrchestrator
                 _log.LogWarning(ex, "Chunk {Idx} failed attempt {Attempt}/{Max}.",
                     chunk.Index, attempts, _opt.MaxAttemptsPerChunk);
 
-                await Task.Delay(TimeSpan.FromSeconds(Math.Min(30, 2 * attempts)), ct);
+                if (!validationFailure)
+                    await Task.Delay(TimeSpan.FromSeconds(Math.Min(30, 2 * attempts)), ct);
             }
         }
 
@@ -199,5 +215,32 @@ public sealed class TranslationOrchestrator
         item.Attempts = attempts;
         item.LastError = lastError;
         item.UpdatedAt = DateTimeOffset.UtcNow;
+    }
+
+    private static List<string> BuildModelSequence(OpenAiOptions openAi)
+    {
+        List<string> models = new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(openAi.Model))
+            models.Add(openAi.Model.Trim());
+
+        if (openAi.FallbackModels is { Count: > 0 })
+        {
+            foreach (string m in openAi.FallbackModels)
+            {
+                string trimmed = m?.Trim() ?? string.Empty;
+                if (trimmed.Length == 0)
+                    continue;
+                if (models.Contains(trimmed, StringComparer.OrdinalIgnoreCase))
+                    continue;
+
+                models.Add(trimmed);
+            }
+        }
+
+        if (models.Count == 0)
+            models.Add("gpt-4o-mini");
+
+        return models;
     }
 }
